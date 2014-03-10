@@ -22,3 +22,7 @@ ipch
 *.user
 *.user.*
 *~
+
+.DS_Store
+include
+lib

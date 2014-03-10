@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 2.8.9)
 
 set(CMAKE_AUTOMOC ON)
 
+
 cmake_policy(SET CMP0015 NEW)
 
 # Default HEADLESS to 0.
@@ -144,10 +145,12 @@ endif(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
 add_custom_target(BuildInfo.h ALL COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/BuildInfo.sh ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_BUILD_TYPE} ${ETH_BUILD_PLATFORM})
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
+
 add_subdirectory(secp256k1)
 add_subdirectory(libethereum)
 add_subdirectory(test)
 add_subdirectory(eth)
+add_subdirectory(etherchain)
 if (NOT HEADLESS)
 	add_subdirectory(alethzero)
 	add_subdirectory(walleth)
