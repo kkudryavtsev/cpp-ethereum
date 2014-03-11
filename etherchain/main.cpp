@@ -32,14 +32,26 @@
 #include "FileSystem.h" 
 #include "Instruction.h" 
 #include "Common.h"
+#include "mongo/client/dbclient.h"
 using namespace std;
 using namespace eth;
+using namespace mongo;
 
 #define ADD_QUOTES_HELPER(s) #s 
-#define ADD_QUOTES(s) ADD_QUOTES_HELPER(s) 
+#define ADD_QUOTES(s) ADD_QUOTES_HELPER(s)
+
 
 int main(int argc, char** argv)
 {
+  mongo::DBClientConnection mongoClient;
+  
+  try {
+    mongoClient.connect("localhost");
+    std::cout << "connected ok" << std::endl;
+  } catch( const mongo::DBException &e ) {
+    std::cout << "caught " << e.what() << std::endl;
+    return -1;
+  }
 
   string dbPath;
   string publicIP;
@@ -91,14 +103,16 @@ int main(int argc, char** argv)
     //if (c.changed()) {
     //cout << "Change detected, exporting data..." << endl;
     i++;
-    //string exportPath = "C:\\ethereum\\data\\" + to_string(i); 
-    string exportPath = "/Users/megatv/ethereum_data/" + to_string(i) + "_";
-    ofstream blockFile;
-    blockFile.open(exportPath + "blocks.txt");
-    ofstream txFile;
-    txFile.open(exportPath + "tx.txt");
-    ofstream addrFile;
-    addrFile.open(exportPath + "addrDat.txt");
+    //string exportPath = "C:\\ethereum\\data\\" + to_string(i);
+    
+    //TODO relative path
+    //string exportPath = "/Users/megatv/ethereum_data/" + to_string(i) + "_";
+    // ofstream blockFile;
+    // blockFile.open(exportPath + "blocks.txt");
+    // ofstream txFile;
+    // txFile.open(exportPath + "tx.txt");
+    // ofstream addrFile;
+    // addrFile.open(exportPath + "addrDat.txt");
 
     unsigned int currentRunMax = 0;
 
@@ -123,36 +137,48 @@ int main(int argc, char** argv)
           currentRunMax = d.number;
 
         cout << "Block Number " << d.number << endl;
-        // cout << "Hash " << bi.hash << endl; 
-        // cout << "Parent Hash " << bi.parentHash << endl; 
-        // cout << "Difficulty " << bi.difficulty << endl; 
-        // cout << "Coinbase " << bi.coinbaseAddress << endl; 
-        // cout << "Nonce " << bi.nonce << endl; 
-        // cout << "SHA3(Tx) " << bi.sha3Transactions << endl; 
-        // cout << "SHA3(Uncles) " << bi.sha3Uncles << endl; 
-        // cout << "Root " << bi.stateRoot << endl; 
-        // cout << "Time " << bi.timestamp << endl; 
-        // cout << "Transactions: " << endl; 
 
-        blockFile << bi.hash << ";" << d.number << ";" << bi.parentHash << ";" << bi.sha3Uncles << ";" << bi.coinbaseAddress << ";" << bi.stateRoot << ";" << bi.sha3Transactions << ";" << bi.difficulty << ";" << bi.timestamp << ";" << bi.nonce << endl;
+        auto_ptr<DBClientCursor> cursor = mongoClient
+          .query("ethereum.blocks", QUERY("hash" << boost::lexical_cast<string>(bi.hash)));
+
+        if(cursor->itcount() > 0) continue; //block has been processed in saved
+        
+
+        BSONObj p = BSON(GENOID <<
+                         "hash" << boost::lexical_cast<string>(bi.hash) <<
+                         "number" << to_string(d.number) << 
+                         "parentHash" << boost::lexical_cast<string>(bi.parentHash) <<
+                         "sha3Uncles" << boost::lexical_cast<string>(bi.sha3Uncles) <<
+                         "coinbaseAddress" << boost::lexical_cast<string>(bi.coinbaseAddress) <<
+                         "stateRoot" << boost::lexical_cast<string>(bi.stateRoot) <<
+                         "sha3Transactions" << boost::lexical_cast<string>(bi.sha3Transactions) <<
+                         "difficulty" << boost::lexical_cast<string>(bi.difficulty) <<
+                         "timestamp" << boost::lexical_cast<string>(bi.timestamp) <<
+                         "nonce" << boost::lexical_cast<string>(bi.nonce));
+          
+        mongoClient.insert("ethereum.blocks", p);
+
+
+        //TODO mining rewards don't look right:
 
         // Create virtual txs for the mining rewards
         auto _block = bc.block(h);
-        Addresses rewarded;
-        for (auto const& i : RLP(_block)[2]) //TODO da fuq is RLP?
-          {
-            BlockInfo uncle = BlockInfo::fromHeader(i.data());
-            rewarded.push_back(uncle.coinbaseAddress);
-          }
-        u256 m_blockReward = 1500 * finney;
-        u256 r = m_blockReward;
-
-        for (auto const& i : rewarded)
-          {
-            txFile << bi.hash << ";" << bi.hash << ";" << i << ";" << "Mining reward" << ";" << (m_blockReward * 7 / 8) << ";" << endl; 
-            r += m_blockReward / 8;
-          }
-        txFile << bi.hash << ";" << bi.hash << ";" << bi.coinbaseAddress << ";" << "Mining reward" << ";" << r << ";" << endl;
+         
+        // Addresses rewarded;
+        // for (auto const& i : RLP(_block)[2])
+        //   {
+        //     BlockInfo uncle = BlockInfo::fromHeader(i.data());
+        //     rewarded.push_back(uncle.coinbaseAddress);
+        //   }
+        // u256 m_blockReward = 1500 * finney;
+        // u256 r = m_blockReward;
+        
+        // for (auto const& i : rewarded)
+        //   {
+        //     txFile << bi.hash << ";" << bi.hash << ";" << i << ";" << "Mining reward" << ";" << (m_blockReward * 7 / 8) << ";" << endl; 
+        //     r += m_blockReward / 8;
+        //   }
+        // txFile << bi.hash << ";" << bi.hash << ";" << bi.coinbaseAddress << ";" << "Mining reward" << ";" << r << ";" << endl;
 
         for (auto const& i : RLP(_block)[1])
           {
@@ -162,25 +188,17 @@ int main(int argc, char** argv)
             //cout << "Recipient " << t.receiveAddress << endl;
             //cout << "Value " << t.value << endl;
 
-            txFile << t.sha3() << ";" << bi.hash << ";" << t.receiveAddress << ";" << t.safeSender() << ";" << t.value;
+            string data = t.data.size() ? boost::lexical_cast<string>(eth::disassemble(t.data)) : "null";
 
-            if (t.receiveAddress)
-              {
-                txFile << ";" << "0";
-              }
-            else
-              {
-                txFile << ";" << "1";
-              }
-
-            if (t.data.size())
-              {
-                txFile << ";" << eth::disassemble(t.data) << endl;
-              }
-            else 
-              {
-                txFile << ";" << endl;
-              }
+            BSONObj p = BSON(GENOID <<
+                             "sha3" << boost::lexical_cast<string>(t.sha3()) <<
+                             "blockHash" << boost::lexical_cast<string>(bi.hash) <<
+                             "receiveAddress" << boost::lexical_cast<string>(t.receiveAddress) <<
+                             "safeSender" << boost::lexical_cast<string>(t.safeSender()) <<
+                             "value" << boost::lexical_cast<string>(t.value) <<
+                             "data" << data);
+              
+            mongoClient.insert("ethereum.transactions", p);
           }
       }
 
@@ -230,14 +248,14 @@ int main(int argc, char** argv)
                       }
                     next = ii.first + 1;
                   }
-                addrFile << a.first << ";" << s.str() << endl;
+                //addrFile << a.first << ";" << s.str() << endl;
               }
           }
       }
 
-    blockFile.close();
-    txFile.close();
-    addrFile.close();
+    // blockFile.close();
+    // txFile.close();
+    // addrFile.close();
 
     if (currentRunMax > maxNumber)
       maxNumber = currentRunMax;

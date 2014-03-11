@@ -93,6 +93,7 @@ struct InstructionInfo
 	int ret;
 };
 
+extern const std::map<Instruction, InstructionInfo> c_instructionInfo;
 extern const std::map<std::string, Instruction> c_instructions;
 
 /// Convert from simple EVM assembly language to EVM code.
