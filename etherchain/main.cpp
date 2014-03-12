@@ -43,13 +43,23 @@ using namespace mongo;
 
 int main(int argc, char** argv)
 {
+  char* mongoUrl = getenv("TEST_VAR");
+
+  if(mongoUrl != NULL){
+    cout << mongoUrl << endl;
+  }else{
+    cout << "Mongo URL envvar not found" << endl;
+    return -2;
+  }
+  return 0;
+  
   mongo::DBClientConnection mongoClient;
   
   try {
     mongoClient.connect("localhost");
     std::cout << "connected ok" << std::endl;
   } catch( const mongo::DBException &e ) {
-    std::cout << "caught " << e.what() << std::endl;
+    std::cout << e.what() << std::endl;
     return -1;
   }
 
@@ -141,9 +151,8 @@ int main(int argc, char** argv)
         auto_ptr<DBClientCursor> cursor = mongoClient
           .query("ethereum.blocks", QUERY("hash" << boost::lexical_cast<string>(bi.hash)));
 
-        if(cursor->itcount() > 0) continue; //block has been processed in saved
+        if(cursor->itcount() > 0) continue; //block has been processed and saved
         
-
         BSONObj p = BSON(GENOID <<
                          "hash" << boost::lexical_cast<string>(bi.hash) <<
                          "number" << to_string(d.number) << 
@@ -206,51 +215,64 @@ int main(int argc, char** argv)
       {
         // Export contract states
         auto acs = state.addresses();
-        for (auto a : acs)
-          {
-            if (state.isContractAddress(a.first))
-              {
-                auto mem = state.contractMemory(a.first);
-                u256 next = 0;
-                unsigned numerics = 0;
-                bool unexpectedNumeric = false;
-                stringstream s;
-                for (auto ii : mem)
-                  {
-                    if (next < ii.first)
-                      {
-                        unsigned j;
-                        for (j = 0; j <= numerics && next + j < ii.first; ++j)
-                          s << (j < numerics || unexpectedNumeric ? " 0" : " STOP");
-                        unexpectedNumeric = false;
-                        numerics -= min(numerics, j);
-                        if (next + j < ii.first)
-                          s << " @" << showbase << hex << ii.first << " ";
-                      }
-                    else if (!next)
-                      {
-                        s << "@" << showbase << hex << ii.first << " ";
-                      }
-                    auto iit = c_instructionInfo.find((Instruction)(unsigned)ii.second);
-                    if (numerics || iit == c_instructionInfo.end() || (u256)(unsigned)iit->first != ii.second)// not an instruction or expecting an argument...
-                      {
-                        if (numerics)
-                          numerics--;
-                        else
-                          unexpectedNumeric = true;
-                        s << " " << showbase << hex << ii.second;
-                      }
-                    else
-                      {
-                        auto const& ii = iit->second;
-                        s << " " << ii.name;
-                        numerics = ii.additional;
-                      }
-                    next = ii.first + 1;
-                  }
-                //addrFile << a.first << ";" << s.str() << endl;
+        for (auto a : acs) {
+          if (state.isContractAddress(a.first)) {
+            auto mem = state.contractMemory(a.first);
+            u256 next = 0;
+            unsigned numerics = 0;
+            bool unexpectedNumeric = false;
+            stringstream s;
+            for (auto ii : mem) {
+              if (next < ii.first) {
+                unsigned j;
+                for (j = 0; j <= numerics && next + j < ii.first; ++j)
+                  s << (j < numerics || unexpectedNumeric ? " 0" : " STOP");
+                unexpectedNumeric = false;
+                numerics -= min(numerics, j);
+                if (next + j < ii.first)
+                  s << " @" << showbase << hex << ii.first << " ";
               }
-          }
+              else if (!next) {
+                s << "@" << showbase << hex << ii.first << " ";
+              }
+              auto iit = c_instructionInfo.find((Instruction)(unsigned)ii.second);
+              if (numerics || iit == c_instructionInfo.end() || (u256)(unsigned)iit->first != ii.second)// not an instruction or expecting an argument...
+                {
+                  if (numerics)
+                    numerics--;
+                  else
+                    unexpectedNumeric = true;
+                  s << " " << showbase << hex << ii.second;
+                }
+              else
+                {
+                  auto const& ii = iit->second;
+                  s << " " << ii.name;
+                  numerics = ii.additional;
+                }
+              next = ii.first + 1;
+            }
+            
+            auto_ptr<DBClientCursor> cursor = mongoClient
+              .query("ethereum.addresses", QUERY("address" << a.first));
+            if(cursor->itcount() == 0){
+              BSONObj p = BSON(GENOID <<
+                               "address" << boost::lexical_cast<string>(a.first) <<
+                               "contract" << s.str());
+              mongoClient.insert("ethereum.addresses", p);
+            }
+          } else {
+            auto_ptr<DBClientCursor> cursor = mongoClient
+              .query("ethereum.addresses",
+                     QUERY("address" << boost::lexical_cast<string>(a.first)));
+            if(cursor->itcount() == 0){
+              BSONObj p = BSON(GENOID <<
+                               "address" << boost::lexical_cast<string>(a.first) <<
+                               "balance" << boost::lexical_cast<string>(a.second));
+              mongoClient.insert("ethereum.addresses", p);
+            }
+          } 
+        } 
       }
 
     // blockFile.close();
