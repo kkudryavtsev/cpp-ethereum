@@ -43,7 +43,7 @@ using namespace mongo;
 
 int main(int argc, char** argv)
 {
-  char* mongoUrl = getenv("TEST_VAR");
+  char* mongoUrl = getenv("ETHEREUM_MONGO_URL");
 
   if(mongoUrl != NULL){
     cout << mongoUrl << endl;
@@ -51,12 +51,11 @@ int main(int argc, char** argv)
     cout << "Mongo URL envvar not found" << endl;
     return -2;
   }
-  return 0;
   
   mongo::DBClientConnection mongoClient;
   
   try {
-    mongoClient.connect("localhost");
+    mongoClient.connect(mongoUrl);
     std::cout << "connected ok" << std::endl;
   } catch( const mongo::DBException &e ) {
     std::cout << e.what() << std::endl;
@@ -100,7 +99,6 @@ int main(int argc, char** argv)
 
   c.startNetwork((short)30303);
   c.connect("54.201.28.117", (short)30303);
-  //c.connect("54.200.139.158", (short)30303);
   int i = 0;
   unsigned int maxNumber = 0;
 
@@ -110,19 +108,7 @@ int main(int argc, char** argv)
     cout << "Checking for changes..." << endl;
     cout << "Peers: " << c.peerCount() << endl;
 
-    //if (c.changed()) {
-    //cout << "Change detected, exporting data..." << endl;
     i++;
-    //string exportPath = "C:\\ethereum\\data\\" + to_string(i);
-    
-    //TODO relative path
-    //string exportPath = "/Users/megatv/ethereum_data/" + to_string(i) + "_";
-    // ofstream blockFile;
-    // blockFile.open(exportPath + "blocks.txt");
-    // ofstream txFile;
-    // txFile.open(exportPath + "tx.txt");
-    // ofstream addrFile;
-    // addrFile.open(exportPath + "addrDat.txt");
 
     unsigned int currentRunMax = 0;
 
@@ -192,10 +178,6 @@ int main(int argc, char** argv)
         for (auto const& i : RLP(_block)[1])
           {
             Transaction t(i.data());
-            //cout << "Tx Hash " << t.sha3() << endl;
-            //cout << "Sender " << t.safeSender() << endl;
-            //cout << "Recipient " << t.receiveAddress << endl;
-            //cout << "Value " << t.value << endl;
 
             string data = t.data.size() ? boost::lexical_cast<string>(eth::disassemble(t.data)) : "null";
 
@@ -255,7 +237,7 @@ int main(int argc, char** argv)
             
             auto_ptr<DBClientCursor> cursor = mongoClient
               .query("ethereum.addresses", QUERY("address" << a.first));
-            if(cursor->itcount() == 0){
+            if(cursor->itcount() == 0) {
               BSONObj p = BSON(GENOID <<
                                "address" << boost::lexical_cast<string>(a.first) <<
                                "contract" << s.str());
@@ -275,14 +257,9 @@ int main(int argc, char** argv)
         } 
       }
 
-    // blockFile.close();
-    // txFile.close();
-    // addrFile.close();
-
     if (currentRunMax > maxNumber)
       maxNumber = currentRunMax;
     c.unlock();
-    //}
   }
   return 0;
 }
