@@ -17,11 +17,7 @@ To run the tests, make sure you clone the tests repository from github.com/ether
 
 ### Yet To Do
 
-<<<<<<< HEAD
 See https://github.com/ethereum/cpp-ethereum/wiki/TODO
-=======
-See [TODO](TODO)
->>>>>>> 91d36bbd1a38ef4cf559a1994266e93b585f2db1
 
 ### License
 

@@ -41,9 +41,10 @@ using namespace mongo;
 #define ADD_QUOTES(s) ADD_QUOTES_HELPER(s)
 
 
-int main(int argc, char** argv)
-{
-  char* mongoUrl = getenv("ETHEREUM_MONGO_URL");
+int main(int argc, char** argv) {
+  char* mongoUrl = getenv("ETHERTOOLS_MONGO_URL");
+  char* mongoUser = getenv("ETHERTOOLS_MONGO_USER");
+  char* mongoPass = getenv("ETHERTOOLS_MONGO_PASS");
 
   if(mongoUrl != NULL){
     cout << mongoUrl << endl;
@@ -52,15 +53,32 @@ int main(int argc, char** argv)
     return -2;
   }
   
-  mongo::DBClientConnection mongoClient;
+  string errmsg;
+  ConnectionString cs = ConnectionString::parse(mongoUrl, errmsg);
   
-  try {
-    mongoClient.connect(mongoUrl);
-    std::cout << "connected ok" << std::endl;
-  } catch( const mongo::DBException &e ) {
-    std::cout << e.what() << std::endl;
-    return -1;
+  if(!cs.isValid()){
+    cout << "error parsing url: " << errmsg << endl;
+    return EXIT_FAILURE;
   }
+  
+
+  boost::scoped_ptr<DBClientBase> mongoClient(cs.connect(errmsg));
+
+  if (!mongoClient) {
+    cout << "couldn't connect: " << errmsg << endl;
+    return EXIT_FAILURE;
+  }
+
+  if(mongoUser != NULL && mongoPass != NULL){
+    mongoClient->auth(BSON("user" << mongoUser <<
+                           "userSource" << "ethertools" <<
+                           "pwd" << mongoPass <<
+                           "mechanism" << "MONGODB-CR"));
+  }
+
+
+  
+  std::cout << "connected ok" << std::endl;
 
   string dbPath;
   string publicIP;
@@ -75,21 +93,18 @@ int main(int argc, char** argv)
 
   string configFile = getDataDir() + "/config.rlp";
   bytes b = contents(configFile);
-  if (b.size())
-    {
-      RLP config(b);
-      us = KeyPair(config[0].toHash<Secret>());
-      coinbase = config[1].toHash<Address>();
-    }
-  else
-    {
-      RLPStream config(2);
-      config << us.secret() << coinbase;
-      writeFile(configFile, config.out());
-    }
+  if (b.size()){
+    RLP config(b);
+    us = KeyPair(config[0].toHash<Secret>());
+    coinbase = config[1].toHash<Address>();
+  }else{
+    RLPStream config(2);
+    config << us.secret() << coinbase;
+    writeFile(configFile, config.out());
+  }
 
-  if (!clientName.empty())
-    clientName += "/";
+  if (!clientName.empty()) clientName += "/";
+  
   Client c("Ethereum(++)/" + clientName + "v" ADD_QUOTES(ETH_VERSION) "/" ADD_QUOTES(ETH_BUILD_TYPE) "/" ADD_QUOTES(ETH_BUILD_PLATFORM), coinbase, dbPath);
 
   cout << "eth version " << ADD_QUOTES(ETH_VERSION) << endl;
@@ -116,150 +131,149 @@ int main(int argc, char** argv)
     auto const& state = c.state();
     bool newBlockExported = false;
 
-    for (auto h = bc.currentHash(); h != bc.genesisHash(); h = bc.details(h).parent)
-      {
-        auto b = bc.block(h);
-        auto bi = BlockInfo(b);
+    for (auto h = bc.currentHash(); h != bc.genesisHash(); h = bc.details(h).parent) {
+      auto b = bc.block(h);
+      auto bi = BlockInfo(b);
 
-        auto d = bc.details(h);
+      auto d = bc.details(h);
 
-        if (d.number <= maxNumber) {
-          cout << "Highest Block number in Chain: " << d.number << " is not higher than max imported number: " << maxNumber << endl;
-          break;
-        }
-        newBlockExported = true;
+      if (d.number <= maxNumber) {
+        cout << "Highest Block number in Chain: " << d.number << " is not higher than max imported number: " << maxNumber << endl;
+        break;
+      }
+      newBlockExported = true;
 
-        if (d.number > currentRunMax)
-          currentRunMax = d.number;
+      if (d.number > currentRunMax)
+        currentRunMax = d.number;
 
-        cout << "Block Number " << d.number << endl;
+      cout << "Block Number " << d.number << endl;
 
-        auto_ptr<DBClientCursor> cursor = mongoClient
-          .query("ethereum.blocks", QUERY("hash" << boost::lexical_cast<string>(bi.hash)));
+      auto_ptr<DBClientCursor> cursor = mongoClient
+        ->query("ethertools.blocks", QUERY("hash" << boost::lexical_cast<string>(bi.hash)));
 
-        if(cursor->itcount() > 0) continue; //block has been processed and saved
+      if(cursor->itcount() > 0) continue; //block has been processed and saved
         
-        BSONObj p = BSON(GENOID <<
-                         "hash" << boost::lexical_cast<string>(bi.hash) <<
-                         "number" << to_string(d.number) << 
-                         "parentHash" << boost::lexical_cast<string>(bi.parentHash) <<
-                         "sha3Uncles" << boost::lexical_cast<string>(bi.sha3Uncles) <<
-                         "coinbaseAddress" << boost::lexical_cast<string>(bi.coinbaseAddress) <<
-                         "stateRoot" << boost::lexical_cast<string>(bi.stateRoot) <<
-                         "sha3Transactions" << boost::lexical_cast<string>(bi.sha3Transactions) <<
-                         "difficulty" << boost::lexical_cast<string>(bi.difficulty) <<
-                         "timestamp" << boost::lexical_cast<string>(bi.timestamp) <<
-                         "nonce" << boost::lexical_cast<string>(bi.nonce));
+      BSONObj p = BSON(GENOID <<
+                       "hash" << boost::lexical_cast<string>(bi.hash) <<
+                       "number" << to_string(d.number) << 
+                       "parentHash" << boost::lexical_cast<string>(bi.parentHash) <<
+                       "sha3Uncles" << boost::lexical_cast<string>(bi.sha3Uncles) <<
+                       "coinbaseAddress" << boost::lexical_cast<string>(bi.coinbaseAddress) <<
+                       "stateRoot" << boost::lexical_cast<string>(bi.stateRoot) <<
+                       "sha3Transactions" << boost::lexical_cast<string>(bi.sha3Transactions) <<
+                       "difficulty" << boost::lexical_cast<string>(bi.difficulty) <<
+                       "timestamp" << boost::lexical_cast<string>(bi.timestamp) <<
+                       "nonce" << boost::lexical_cast<string>(bi.nonce));
           
-        mongoClient.insert("ethereum.blocks", p);
+      mongoClient->insert("ethertools.blocks", p);
 
 
-        //TODO mining rewards don't look right:
+      //TODO mining rewards don't look right:
 
-        // Create virtual txs for the mining rewards
-        auto _block = bc.block(h);
+      // Create virtual txs for the mining rewards
+      auto _block = bc.block(h);
          
-        // Addresses rewarded;
-        // for (auto const& i : RLP(_block)[2])
-        //   {
-        //     BlockInfo uncle = BlockInfo::fromHeader(i.data());
-        //     rewarded.push_back(uncle.coinbaseAddress);
-        //   }
-        // u256 m_blockReward = 1500 * finney;
-        // u256 r = m_blockReward;
+      // Addresses rewarded;
+      // for (auto const& i : RLP(_block)[2])
+      //   {
+      //     BlockInfo uncle = BlockInfo::fromHeader(i.data());
+      //     rewarded.push_back(uncle.coinbaseAddress);
+      //   }
+      // u256 m_blockReward = 1500 * finney;
+      // u256 r = m_blockReward;
         
-        // for (auto const& i : rewarded)
-        //   {
-        //     txFile << bi.hash << ";" << bi.hash << ";" << i << ";" << "Mining reward" << ";" << (m_blockReward * 7 / 8) << ";" << endl; 
-        //     r += m_blockReward / 8;
-        //   }
-        // txFile << bi.hash << ";" << bi.hash << ";" << bi.coinbaseAddress << ";" << "Mining reward" << ";" << r << ";" << endl;
+      // for (auto const& i : rewarded)
+      //   {
+      //     txFile << bi.hash << ";" << bi.hash << ";" << i << ";" << "Mining reward" << ";" << (m_blockReward * 7 / 8) << ";" << endl; 
+      //     r += m_blockReward / 8;
+      //   }
+      // txFile << bi.hash << ";" << bi.hash << ";" << bi.coinbaseAddress << ";" << "Mining reward" << ";" << r << ";" << endl;
 
-        for (auto const& i : RLP(_block)[1])
-          {
-            Transaction t(i.data());
+      for (auto const& i : RLP(_block)[1]) {
+        Transaction t(i.data());
 
-            string data = t.data.size() ? boost::lexical_cast<string>(eth::disassemble(t.data)) : "null";
+        string data = t.data.size() ? boost::lexical_cast<string>(eth::disassemble(t.data)) : "null";
 
-            BSONObj p = BSON(GENOID <<
-                             "sha3" << boost::lexical_cast<string>(t.sha3()) <<
-                             "blockHash" << boost::lexical_cast<string>(bi.hash) <<
-                             "receiveAddress" << boost::lexical_cast<string>(t.receiveAddress) <<
-                             "safeSender" << boost::lexical_cast<string>(t.safeSender()) <<
-                             "value" << boost::lexical_cast<string>(t.value) <<
-                             "data" << data);
+        BSONObj p = BSON(GENOID <<
+                         "sha3" << boost::lexical_cast<string>(t.sha3()) <<
+                         "blockHash" << boost::lexical_cast<string>(bi.hash) <<
+                         "receiveAddress" << boost::lexical_cast<string>(t.receiveAddress) <<
+                         "safeSender" << boost::lexical_cast<string>(t.safeSender()) <<
+                         "value" << boost::lexical_cast<string>(t.value) <<
+                         "data" << data);
               
-            mongoClient.insert("ethereum.transactions", p);
+        mongoClient->insert("ethertools.transactions", p);
+      }
+    }
+
+    if (newBlockExported) {
+      // Export contract states
+      auto acs = state.addresses();
+      for (auto a : acs) {
+        if (state.isContractAddress(a.first)) {
+          auto mem = state.contractMemory(a.first);
+          u256 next = 0;
+          unsigned numerics = 0;
+          bool unexpectedNumeric = false;
+          stringstream s;
+          for (auto ii : mem) {
+            if (next < ii.first) {
+              unsigned j;
+              for (j = 0; j <= numerics && next + j < ii.first; ++j)
+                s << (j < numerics || unexpectedNumeric ? " 0" : " STOP");
+              unexpectedNumeric = false;
+              numerics -= min(numerics, j);
+              if (next + j < ii.first)
+                s << " @" << showbase << hex << ii.first << " ";
+            }
+            else if (!next) {
+              s << "@" << showbase << hex << ii.first << " ";
+            }
+            auto iit = c_instructionInfo.find((Instruction)(unsigned)ii.second);
+            if (numerics || iit == c_instructionInfo.end() || (u256)(unsigned)iit->first != ii.second)// not an instruction or expecting an argument...
+              {
+                if (numerics)
+                  numerics--;
+                else
+                  unexpectedNumeric = true;
+                s << " " << showbase << hex << ii.second;
+              }
+            else
+              {
+                auto const& ii = iit->second;
+                s << " " << ii.name;
+                numerics = ii.additional;
+              }
+            next = ii.first + 1;
           }
-      }
-
-    if (newBlockExported)
-      {
-        // Export contract states
-        auto acs = state.addresses();
-        for (auto a : acs) {
-          if (state.isContractAddress(a.first)) {
-            auto mem = state.contractMemory(a.first);
-            u256 next = 0;
-            unsigned numerics = 0;
-            bool unexpectedNumeric = false;
-            stringstream s;
-            for (auto ii : mem) {
-              if (next < ii.first) {
-                unsigned j;
-                for (j = 0; j <= numerics && next + j < ii.first; ++j)
-                  s << (j < numerics || unexpectedNumeric ? " 0" : " STOP");
-                unexpectedNumeric = false;
-                numerics -= min(numerics, j);
-                if (next + j < ii.first)
-                  s << " @" << showbase << hex << ii.first << " ";
-              }
-              else if (!next) {
-                s << "@" << showbase << hex << ii.first << " ";
-              }
-              auto iit = c_instructionInfo.find((Instruction)(unsigned)ii.second);
-              if (numerics || iit == c_instructionInfo.end() || (u256)(unsigned)iit->first != ii.second)// not an instruction or expecting an argument...
-                {
-                  if (numerics)
-                    numerics--;
-                  else
-                    unexpectedNumeric = true;
-                  s << " " << showbase << hex << ii.second;
-                }
-              else
-                {
-                  auto const& ii = iit->second;
-                  s << " " << ii.name;
-                  numerics = ii.additional;
-                }
-              next = ii.first + 1;
-            }
             
-            auto_ptr<DBClientCursor> cursor = mongoClient
-              .query("ethereum.addresses", QUERY("address" << a.first));
-            if(cursor->itcount() == 0) {
-              BSONObj p = BSON(GENOID <<
-                               "address" << boost::lexical_cast<string>(a.first) <<
-                               "contract" << s.str());
-              mongoClient.insert("ethereum.addresses", p);
-            }
-          } else {
-            auto_ptr<DBClientCursor> cursor = mongoClient
-              .query("ethereum.addresses",
-                     QUERY("address" << boost::lexical_cast<string>(a.first)));
-            if(cursor->itcount() == 0){
-              BSONObj p = BSON(GENOID <<
-                               "address" << boost::lexical_cast<string>(a.first) <<
-                               "balance" << boost::lexical_cast<string>(a.second));
-              mongoClient.insert("ethereum.addresses", p);
-            }
-          } 
-        } 
-      }
-
+          auto_ptr<DBClientCursor> cursor = mongoClient->query("ethertools.addresses",
+                                                               QUERY("address" << a.first));
+          if(cursor->itcount() == 0) {
+            BSONObj p = BSON(GENOID <<
+                             "address" << boost::lexical_cast<string>(a.first) <<
+                             "contract" << s.str());
+            mongoClient->insert("ethertools.addresses", p);
+          }
+        } else {
+          auto_ptr<DBClientCursor> cursor = mongoClient->
+            query("ethertools.addresses",
+                  QUERY("address" << boost::lexical_cast<string>(a.first)));
+          
+          if(cursor->itcount() == 0){
+            BSONObj p = BSON(GENOID <<
+                             "address" << boost::lexical_cast<string>(a.first) <<
+                             "balance" << boost::lexical_cast<string>(a.second));
+            mongoClient->insert("ethertools.addresses", p);
+          }
+        }
+      } 
+    }
     if (currentRunMax > maxNumber)
       maxNumber = currentRunMax;
     c.unlock();
   }
+
+
   return 0;
 }
