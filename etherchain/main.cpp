@@ -247,8 +247,9 @@ int main(int argc, char** argv) {
             next = ii.first + 1;
           }
             
-          auto_ptr<DBClientCursor> cursor = mongoClient->query("ethertools.addresses",
-                                                               QUERY("address" << a.first));
+          auto_ptr<DBClientCursor> cursor = mongoClient->
+            query("ethertools.addresses",
+                  QUERY("address" << boost::lexical_cast<string>(a.first) ));
           if(cursor->itcount() == 0) {
             BSONObj p = BSON(GENOID <<
                              "address" << boost::lexical_cast<string>(a.first) <<
