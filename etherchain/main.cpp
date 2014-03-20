@@ -153,6 +153,33 @@ int main(int argc, char** argv) {
 
       if(cursor->itcount() > 0) continue; //block has been processed and saved
         
+
+
+      //TODO mining rewards
+
+      auto _block = bc.block(h);
+      BSONArrayBuilder transactionShas;
+         
+      for (auto const& i : RLP(_block)[1]) {
+        Transaction t(i.data());
+
+        string data = t.data.size() ? boost::lexical_cast<string>(eth::disassemble(t.data)) : "null";
+        string sha3 = boost::lexical_cast<string>(t.sha3());
+
+        BSONObj p = BSON(GENOID <<
+                         "sha3" << sha3 <<
+                         "blockHash" << boost::lexical_cast<string>(bi.hash) <<
+                         "receiveAddress" << boost::lexical_cast<string>(t.receiveAddress) <<
+                         "safeSender" << boost::lexical_cast<string>(t.safeSender()) <<
+                         "value" << boost::lexical_cast<string>(t.value) <<
+                         "data" << data);
+              
+        mongoClient->insert("ethertools.transactions", p);
+
+        transactionShas.append(sha3);
+      }
+
+      //now build and insert the block object
       BSONObj p = BSON(GENOID <<
                        "hash" << boost::lexical_cast<string>(bi.hash) <<
                        "number" << to_string(d.number) << 
@@ -163,47 +190,10 @@ int main(int argc, char** argv) {
                        "sha3Transactions" << boost::lexical_cast<string>(bi.sha3Transactions) <<
                        "difficulty" << boost::lexical_cast<string>(bi.difficulty) <<
                        "timestamp" << boost::lexical_cast<string>(bi.timestamp) <<
-                       "nonce" << boost::lexical_cast<string>(bi.nonce));
+                       "nonce" << boost::lexical_cast<string>(bi.nonce) << 
+                       "transactionShas" << transactionShas.arr());
           
       mongoClient->insert("ethertools.blocks", p);
-
-
-      //TODO mining rewards don't look right:
-
-      // Create virtual txs for the mining rewards
-      auto _block = bc.block(h);
-         
-      // Addresses rewarded;
-      // for (auto const& i : RLP(_block)[2])
-      //   {
-      //     BlockInfo uncle = BlockInfo::fromHeader(i.data());
-      //     rewarded.push_back(uncle.coinbaseAddress);
-      //   }
-      // u256 m_blockReward = 1500 * finney;
-      // u256 r = m_blockReward;
-        
-      // for (auto const& i : rewarded)
-      //   {
-      //     txFile << bi.hash << ";" << bi.hash << ";" << i << ";" << "Mining reward" << ";" << (m_blockReward * 7 / 8) << ";" << endl; 
-      //     r += m_blockReward / 8;
-      //   }
-      // txFile << bi.hash << ";" << bi.hash << ";" << bi.coinbaseAddress << ";" << "Mining reward" << ";" << r << ";" << endl;
-
-      for (auto const& i : RLP(_block)[1]) {
-        Transaction t(i.data());
-
-        string data = t.data.size() ? boost::lexical_cast<string>(eth::disassemble(t.data)) : "null";
-
-        BSONObj p = BSON(GENOID <<
-                         "sha3" << boost::lexical_cast<string>(t.sha3()) <<
-                         "blockHash" << boost::lexical_cast<string>(bi.hash) <<
-                         "receiveAddress" << boost::lexical_cast<string>(t.receiveAddress) <<
-                         "safeSender" << boost::lexical_cast<string>(t.safeSender()) <<
-                         "value" << boost::lexical_cast<string>(t.value) <<
-                         "data" << data);
-              
-        mongoClient->insert("ethertools.transactions", p);
-      }
     }
 
     if (newBlockExported) {
