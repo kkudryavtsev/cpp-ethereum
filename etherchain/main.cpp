@@ -158,7 +158,7 @@ int main(int argc, char** argv) {
       //TODO mining rewards
 
       auto _block = bc.block(h);
-      BSONArrayBuilder transactionShas;
+      BSONArrayBuilder transactions;
          
       for (auto const& i : RLP(_block)[1]) {
         Transaction t(i.data());
@@ -167,8 +167,9 @@ int main(int argc, char** argv) {
         string sha3 = boost::lexical_cast<string>(t.sha3());
 
         BSONObj p = BSON(GENOID <<
+                         "id" << sha3 <<
                          "sha3" << sha3 <<
-                         "blockHash" << boost::lexical_cast<string>(bi.hash) <<
+                         "block" << boost::lexical_cast<string>(bi.hash) <<
                          "receiveAddress" << boost::lexical_cast<string>(t.receiveAddress) <<
                          "safeSender" << boost::lexical_cast<string>(t.safeSender()) <<
                          "value" << boost::lexical_cast<string>(t.value) <<
@@ -176,11 +177,12 @@ int main(int argc, char** argv) {
               
         mongoClient->insert("ethertools.transactions", p);
 
-        transactionShas.append(sha3);
+        transactions.append(sha3);
       }
 
       //now build and insert the block object
       BSONObj p = BSON(GENOID <<
+                       "id" << boost::lexical_cast<string>(bi.hash) << 
                        "hash" << boost::lexical_cast<string>(bi.hash) <<
                        "number" << to_string(d.number) << 
                        "parentHash" << boost::lexical_cast<string>(bi.parentHash) <<
@@ -191,7 +193,7 @@ int main(int argc, char** argv) {
                        "difficulty" << boost::lexical_cast<string>(bi.difficulty) <<
                        "timestamp" << boost::lexical_cast<string>(bi.timestamp) <<
                        "nonce" << boost::lexical_cast<string>(bi.nonce) << 
-                       "transactionShas" << transactionShas.arr());
+                       "transactions" << transactions.arr());
           
       mongoClient->insert("ethertools.blocks", p);
     }
@@ -242,6 +244,7 @@ int main(int argc, char** argv) {
                   QUERY("address" << boost::lexical_cast<string>(a.first) ));
           if(cursor->itcount() == 0) {
             BSONObj p = BSON(GENOID <<
+                             "id" << boost::lexical_cast<string>(a.first) <<
                              "address" << boost::lexical_cast<string>(a.first) <<
                              "contract" << s.str());
             mongoClient->insert("ethertools.addresses", p);
@@ -253,6 +256,7 @@ int main(int argc, char** argv) {
           
           if(cursor->itcount() == 0){
             BSONObj p = BSON(GENOID <<
+                             "id" << boost::lexical_cast<string>(a.first) <<
                              "address" << boost::lexical_cast<string>(a.first) <<
                              "balance" << boost::lexical_cast<string>(a.second));
             mongoClient->insert("ethertools.addresses", p);
