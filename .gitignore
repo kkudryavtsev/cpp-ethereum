@@ -22,3 +22,5 @@ ipch
 *.user
 *.user.*
 *~
+
+.DS_Store
