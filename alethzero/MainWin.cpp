@@ -37,6 +37,8 @@ using eth::compileLisp;
 using eth::disassemble;
 using eth::formatBalance;
 using eth::fromHex;
+using eth::sha3;
+using eth::left160;
 using eth::right160;
 using eth::simpleDebugOut;
 using eth::toLog2;
@@ -287,7 +289,7 @@ void Main::refresh(bool _override)
 				QString("%2 +> %3: %1 [%4]")
 					.arg(formatBalance(t.value).c_str())
 					.arg(render(t.safeSender()))
-					.arg(render(right160(t.sha3())))
+					.arg(render(left160(sha3(rlpList(t.safeSender(), t.nonce)))))
 					.arg((unsigned)t.nonce);
 			ui->transactionQueue->addItem(s);
 		}
@@ -313,7 +315,7 @@ void Main::refresh(bool _override)
 					QString("    %2 +> %3: %1 [%4]")
 						.arg(formatBalance(t.value).c_str())
 						.arg(render(t.safeSender()))
-						.arg(render(right160(t.sha3())))
+						.arg(render(left160(sha3(rlpList(t.safeSender(), t.nonce)))))
 						.arg((unsigned)t.nonce);
 				QListWidgetItem* txItem = new QListWidgetItem(s, ui->blocks);
 				txItem->setData(Qt::UserRole, QByteArray((char const*)h.data(), h.size));
@@ -390,22 +392,24 @@ void Main::on_blocks_currentItemChanged()
 		{
 			unsigned txi = item->data(Qt::UserRole + 1).toInt();
 			Transaction tx(block[1][txi].data());
-			h256 th = tx.sha3();
+			auto ss = tx.safeSender();
+			h256 th = sha3(rlpList(ss, tx.nonce));
 			s << "<h3>" << th << "</h3>";
 			s << "<h4>" << h << "[<b>" << txi << "</b>]</h4>";
-			auto ss = tx.safeSender();
 			s << "<br/>From: <b>" << pretty(ss).toStdString() << "</b> " << ss;
-			if (tx.isCreation)
-				s << "<br/>Creates: <b>" << pretty(right160(th)).toStdString() << "</b> " << right160(th);
+			if (tx.isCreation())
+				s << "<br/>Creates: <b>" << pretty(left160(th)).toStdString() << "</b> " << left160(th);
 			else
 				s << "<br/>To: <b>" << pretty(tx.receiveAddress).toStdString() << "</b> " << tx.receiveAddress;
 			s << "<br/>Value: <b>" << formatBalance(tx.value) << "</b>";
 			s << "&nbsp;&emsp;&nbsp;#<b>" << tx.nonce << "</b>";
 			s << "<br/>Gas price: <b>" << formatBalance(tx.gasPrice) << "</b>";
-			if (tx.isCreation)
+			if (tx.isCreation())
 			{
-				s << "<br/>Storage:&nbsp;&emsp;&nbsp;";
-				s << "</br>" << disassemble(tx.storage);
+				s << "<br/>Init:";
+				s << "<br/>" << disassemble(tx.init);
+				s << "<br/>Code:";
+				s << "<br/>" << disassemble(tx.data);
 			}
 			else
 			{
@@ -435,40 +439,10 @@ void Main::on_contracts_currentItemChanged()
 
 		stringstream s;
 		auto mem = state().contractMemory(h);
-		u256 next = 0;
-		unsigned numerics = 0;
-		bool unexpectedNumeric = false;
 		for (auto const& i: mem)
-		{
-			if (next < i.first)
-			{
-				unsigned j;
-				for (j = 0; j <= numerics && next + j < i.first; ++j)
-					s << (j < numerics || unexpectedNumeric ? " 0" : " <b>STOP</b>");
-				unexpectedNumeric = false;
-				numerics -= min(numerics, j);
-				if (next + j < i.first)
-					s << " ...<br/>@" << showbase << hex << i.first << "&nbsp;&nbsp;&nbsp;&nbsp;";
-			}
-			else if (!next)
-				s << "@" << showbase << hex << i.first << "&nbsp;&nbsp;&nbsp;&nbsp;";
-			auto iit = c_instructionInfo.find((Instruction)(unsigned)i.second);
-			if (numerics || iit == c_instructionInfo.end() || (u256)(unsigned)iit->first != i.second)	// not an instruction or expecting an argument...
-			{
-				if (numerics)
-					numerics--;
-				else
-					unexpectedNumeric = true;
-				s << " " << showbase << hex << i.second;
-			}
-			else
-			{
-				auto const& ii = iit->second;
-				s << " <b>" << ii.name << "</b>";
-				numerics = ii.additional;
-			}
-			next = i.first + 1;
-		}
+			s << "@" << showbase << hex << i.first << "&nbsp;&nbsp;&nbsp;&nbsp;" << showbase << hex << i.second << "<br/>";
+		s << "<br/>Code:";
+		s << "<br/>" << disassemble(state().contractCode(h));
 		ui->contractInfo->appendHtml(QString::fromStdString(s.str()));
 	}
 	m_client->unlock();
@@ -524,14 +498,15 @@ void Main::on_data_textChanged()
 	if (isCreation())
 	{
 		string code = ui->data->toPlainText().toStdString();
-		m_storage = code[0] == '(' ? compileLisp(code, true) : assemble(code, true);
-		ui->code->setPlainText(QString::fromStdString(disassemble(m_storage)));
-		ui->gas->setValue((qint64)state().createGas(m_storage.size()));
-		ui->gas->setEnabled(false);
+		m_init.clear();
+		m_data = compileLisp(code, true, m_init);
+		ui->code->setPlainText(QString::fromStdString(disassemble(m_data)) + "\n; Init:" + QString::fromStdString(disassemble(m_init)));
+		ui->gas->setMinimum((qint64)state().createGas(m_data.size() + m_init.size(), 0));
+		ui->gas->setEnabled(true);
 	}
 	else
 	{
-		string code = ui->data->toPlainText().replace(" ", "").toStdString();
+		string code = ui->data->toPlainText().replace(" ", "").replace("\n", "").replace("\t", "").toStdString();
 		try
 		{
 			m_data = fromHex(code);
@@ -565,11 +540,15 @@ u256 Main::fee() const
 
 u256 Main::value() const
 {
+	if (ui->valueUnits->currentIndex() == -1)
+		return 0;
 	return ui->value->value() * units()[units().size() - 1 - ui->valueUnits->currentIndex()].first;
 }
 
 u256 Main::gasPrice() const
 {
+	if (ui->gasPriceUnits->currentIndex() == -1)
+		return 0;
 	return ui->gasPrice->value() * units()[units().size() - 1 - ui->gasPriceUnits->currentIndex()].first;
 }
 
@@ -659,9 +638,9 @@ void Main::on_send_clicked()
 			m_client->unlock();
 			Secret s = i.secret();
 			if (isCreation())
-				m_client->transact(s, value(), gasPrice(), m_storage);
+				m_client->transact(s, value(), gasPrice(), ui->gas->value(), m_data, m_init);
 			else
-				m_client->transact(s, value(), gasPrice(), fromString(ui->destination->text()), ui->gas->value(), m_data);
+				m_client->transact(s, value(), gasPrice(), ui->gas->value(), fromString(ui->destination->text()), m_data);
 			refresh();
 			return;
 		}
