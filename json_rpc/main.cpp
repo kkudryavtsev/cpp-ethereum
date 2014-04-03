@@ -27,6 +27,7 @@
 #include "RPCServer.h"
 
 using namespace std;
+using namespace eth;
 
 
 int main(int argc, char** argv) {

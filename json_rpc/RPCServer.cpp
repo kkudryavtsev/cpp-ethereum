@@ -20,9 +20,7 @@
  * Ethereum client.
  */
 
-#include <jsonrpc/rpc.h>
 #include "Defaults.h" 
-#include "Client.h" 
 #include "PeerNetwork.h" 
 #include "BlockChain.h" 
 #include "State.h" 
@@ -38,19 +36,40 @@ using namespace eth;
 #define ADD_QUOTES_HELPER(s) #s 
 #define ADD_QUOTES(s) ADD_QUOTES_HELPER(s)
 
-RPCServer::RPCServer() : AbstractServer<RPCServer>(new HttpServer(8080)){
-  this->bindAndAddNotification(new Procedure("notifyServer", PARAMS_BY_NAME, NULL),
-                               &RPCServer::notifyServer);
+RPCServer::RPCServer():
+  AbstractServer<RPCServer>(new HttpServer(8080)),
+  client("Ethereum(++)/json_rpc", KeyPair::create().address())
+{
+  // this->bindAndAddNotification(new Procedure("notifyServer", PARAMS_BY_NAME, NULL),
+  //                              &RPCServer::notifyServer);
   
-  this->bindAndAddMethod(new jsonrpc::Procedure("sayHello", PARAMS_BY_NAME, JSON_STRING, "name",
-                                                JSON_STRING, NULL),
-                         &RPCServer::sayHello);
+  this->bindAndAddMethod(new Procedure("getLastBlock", PARAMS_BY_NAME, JSON_STRING, NULL),
+                         &RPCServer::getLastBlock);
+
+  client.startNetwork((short)30303);
+  client.connect("54.201.28.117", (short)30303);
 }
 
-void RPCServer::notifyServer(const Json::Value& request){
-  cout << "Server got notified" << endl;
+void RPCServer::getLastBlock(const Json::Value& req, Json::Value& res){
+  //client.lock();
+  auto const& bc = client.blockChain();
+  auto h = bc.currentHash();
+  auto b = bc.block();
+  auto bi = BlockInfo(b);
+
+  res["number"] = to_string(bc.details(bc.currentHash()).number);
+  res["hash"] = boost::lexical_cast<string>(bi.hash);
+  
+  //client.unlock();
+  
+  //res = to_string(client->blockChain().details().number);
 }
-void RPCServer::sayHello(const Json::Value& request, Json::Value& response){
-  response = "Hello " + request["name"].asString();
-}
+
+
+// void RPCServer::notifyServer(const Json::Value& request){
+//   cout << "Server got notified" << endl;
+// }
+// void RPCServer::sayHello(const Json::Value& request, Json::Value& response){
+//   response = "Hello " + request["name"].asString();
+// }
 
