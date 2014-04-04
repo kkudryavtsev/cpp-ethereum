@@ -36,40 +36,64 @@ using namespace eth;
 #define ADD_QUOTES_HELPER(s) #s 
 #define ADD_QUOTES(s) ADD_QUOTES_HELPER(s)
 
+
+
 RPCServer::RPCServer():
-  AbstractServer<RPCServer>(new HttpServer(8080)),
-  client("Ethereum(++)/json_rpc", KeyPair::create().address())
+  AbstractServer<RPCServer>(new HttpServer(4000)),
+  m_client("Ethereum(++)/json_rpc", KeyPair::create().address())
 {
-  // this->bindAndAddNotification(new Procedure("notifyServer", PARAMS_BY_NAME, NULL),
-  //                              &RPCServer::notifyServer);
-  
   this->bindAndAddMethod(new Procedure("getLastBlock", PARAMS_BY_NAME, JSON_STRING, NULL),
                          &RPCServer::getLastBlock);
 
-  client.startNetwork((short)30303);
-  client.connect("54.201.28.117", (short)30303);
+  g_logVerbosity = 1;
+  m_client.startNetwork((short)30303);
+  m_client.connect("54.72.31.55", (short)30303);
 }
 
 void RPCServer::getLastBlock(const Json::Value& req, Json::Value& res){
-  //client.lock();
-  auto const& bc = client.blockChain();
+  m_client.lock();
+  auto const& bc = m_client.blockChain();
   auto h = bc.currentHash();
   auto b = bc.block();
   auto bi = BlockInfo(b);
 
   res["number"] = to_string(bc.details(bc.currentHash()).number);
   res["hash"] = boost::lexical_cast<string>(bi.hash);
+  res["parentHash"] = boost::lexical_cast<string>(bi.parentHash);
+  res["sha3Uncles"] = boost::lexical_cast<string>(bi.sha3Uncles);
+  res["coinbaseAddress"] = boost::lexical_cast<string>(bi.coinbaseAddress);
+  res["stateRoot"] = boost::lexical_cast<string>(bi.stateRoot);
+  res["sha3Transactions"] = boost::lexical_cast<string>(bi.sha3Transactions);
+  res["difficulty"] = boost::lexical_cast<string>(bi.difficulty);
+  res["timestamp"] = boost::lexical_cast<string>(bi.timestamp);
+  res["nonce"] = boost::lexical_cast<string>(bi.nonce);
+  res["transactions"] = getTransactions(b);
   
-  //client.unlock();
-  
-  //res = to_string(client->blockChain().details().number);
+  m_client.unlock();
 }
 
 
-// void RPCServer::notifyServer(const Json::Value& request){
-//   cout << "Server got notified" << endl;
-// }
-// void RPCServer::sayHello(const Json::Value& request, Json::Value& response){
-//   response = "Hello " + request["name"].asString();
-// }
+Json::Value RPCServer::getTransactions(bytesConstRef block){
+  Json::Value txs_j;
+  
 
+  int i=0;
+  
+  for (auto const& bRlp : RLP(block)[1]) {
+    Transaction t(bRlp.data());
+
+    Json::Value tx_j;
+    
+    string data = t.data.size() ? boost::lexical_cast<string>(eth::disassemble(t.data)) : "null";
+    string sha3 = boost::lexical_cast<string>(t.sha3());
+
+    tx_j["sha3"] = sha3;
+    tx_j["receiveAddress"] = boost::lexical_cast<string>(t.receiveAddress);
+    tx_j["safeSender"] = boost::lexical_cast<string>(t.safeSender());
+    tx_j["value"] = boost::lexical_cast<string>(t.value);
+    tx_j["data"] = data;
+
+    txs_j[i++].append(tx_j);
+  }
+  return txs_j;
+}

@@ -20,21 +20,27 @@
  * Ethereum client.
  */
 
+#pragma once
+
 #include <jsonrpc/rpc.h>
 #include "Client.h" 
 
-namespace eth{
-class RPCServer : public jsonrpc::AbstractServer<RPCServer>{
-public:
-RPCServer();
+namespace eth
+{
 
-void getBlock(const Json::Value&, Json::Value&);
-void getLastBlock(const Json::Value&, Json::Value&);
-void getTransaction(const Json::Value&, Json::Value&);
-void getAddress(const Json::Value&, Json::Value&);
-void transact(const Json::Value&, Json::Value&);
+  class RPCServer : public jsonrpc::AbstractServer<RPCServer>
+  {
+  public:
 
-private:
-Client client;
-};
+    RPCServer();
+    void getLastBlock(const Json::Value&, Json::Value&);
+    void getBlock(const Json::Value&, Json::Value&);
+    void getAddress(const Json::Value&, Json::Value&);
+    void makeTransaction(const Json::Value&, Json::Value&);
+
+  private:
+    Client m_client;
+    Json::Value getTransactions(bytesConstRef);
+  };
+
 }
