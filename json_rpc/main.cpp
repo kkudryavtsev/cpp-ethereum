@@ -8,11 +8,11 @@
 
 //	 cpp-ethereum is distributed in the hope that it will be useful,
 //	 but WITHOUT ANY WARRANTY; without even the implied warranty of
-//	 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.	 See the
+//	 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.     See the
 //	 GNU General Public License for more details.
 
 //	 You should have received a copy of the GNU General Public License
-//	 along with cpp-ethereum.	 If not, see <http://www.gnu.org/licenses/>.
+//	 along with cpp-ethereum.     If not, see <http://www.gnu.org/licenses/>.
 // */
 // /** @file main.cpp
 //	* @author Konstantin Kudryavtsev <konstantin@ethertools.net>
@@ -20,23 +20,23 @@
 //	* Ethereum client.
 //	*/
 
-// #include <thread> 
-// #include <chrono> 
-// #include <fstream> 
-// #include <iostream> 
+// #include <thread>
+// #include <chrono>
+// #include <fstream>
+// #include <iostream>
 // #include "RPCServer.h"
 
 // using namespace std;
 // using namespace eth;
 
 
-int main(int argc, char** argv) {
+int main(int argc, char** argv)
+{
 	CServer s;
 	s.StartListening();
 	//TODO: --port/-p option
 	cout << "json rpc client is listening on port 8080" << endl;
 	getchar();
 	s.StopListening();
-	
 	return 0;
 }
