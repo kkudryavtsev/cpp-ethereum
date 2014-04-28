@@ -19,6 +19,9 @@ ipch
 *.opensdf
 *.suo
 
+# XCode stuff
+build_xc
+
 *.user
 *.user.*
 *~
