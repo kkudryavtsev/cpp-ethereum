@@ -27,3 +27,5 @@ build_xc
 *~
 
 .DS_Store
+*.pyc
+

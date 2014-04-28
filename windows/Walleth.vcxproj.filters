@@ -3,7 +3,6 @@
   <ItemGroup>
     <ClCompile Include="..\walleth\main.cpp" />
     <ClCompile Include="..\walleth\MainWin.cpp" />
-    <ClCompile Include="qt_plugin_import.cpp" />
     <ClCompile Include="stdafx.cpp">
       <Filter>Windows</Filter>
     </ClCompile>
@@ -27,5 +26,9 @@
     <ClInclude Include="stdafx.h">
       <Filter>Windows</Filter>
     </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\walleth\Resources.qrc" />
+    <None Include="..\walleth\Simple.qml" />
   </ItemGroup>
 </Project>

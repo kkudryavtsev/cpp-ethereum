@@ -9,7 +9,9 @@ set(CMAKE_INCLUDE_CURRENT_DIR ON)
 aux_source_directory(. SRC_LIST)
 
 include_directories(..)
+link_directories(../libethcore)
 link_directories(../libethereum)
+link_directories(../libqethereum)
 
 # Find Qt5 for Apple and update src_list for windows
 if (APPLE)
@@ -26,6 +28,8 @@ endif ()
 
 
 find_package(Qt5Widgets REQUIRED)
+find_package(Qt5WebKit REQUIRED)
+find_package(Qt5WebKitWidgets REQUIRED)
 qt5_wrap_ui(ui_Main.h Main.ui)
 
 # Set name of binary and add_executable()
@@ -51,8 +55,8 @@ else ()
 	add_executable(${EXECUTEABLE} Main.ui ${SRC_LIST})
 endif ()
 
-qt5_use_modules(${EXECUTEABLE} Core Gui Widgets Network)
-target_link_libraries(${EXECUTEABLE} ethereum secp256k1 ${CRYPTOPP_LIBRARIES})
+qt5_use_modules(${EXECUTEABLE} Core Gui Widgets Network WebKit WebKitWidgets)
+target_link_libraries(${EXECUTEABLE} qethereum ethereum secp256k1 ${CRYPTOPP_LIBRARIES})
 
 if (APPLE)
 	set_target_properties(${EXECUTEABLE} PROPERTIES MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/EthereumMacOSXBundleInfo.plist.in")
@@ -76,7 +80,7 @@ if (APPLE)
 	install(CODE "
 		include(BundleUtilities)
 		set(BU_CHMOD_BUNDLE_ITEMS 1)
-		fixup_bundle(\"${APPS}\" \"${BUNDLELIBS}\" \"../libethereum ../secp256k1\")
+                fixup_bundle(\"${APPS}\" \"${BUNDLELIBS}\" \"../libqethereum ../libethereum ../secp256k1\")
 		" COMPONENT RUNTIME )
 	
 	add_custom_target(addframeworks ALL
@@ -99,7 +103,7 @@ elseif (${TARGET_PLATFORM} STREQUAL "w64")
 	set(CMAKE_SHARED_LIBRARY_LINK_CXX_FLAGS)
 elseif (UNIX)
 else ()
-	target_link_libraries(${EXECUTEABLE} boost_system)
+        target_link_libraries(${EXECUTEABLE} boost_system)
 	target_link_libraries(${EXECUTEABLE} boost_filesystem)
 	find_package(Threads REQUIRED)
 	target_link_libraries(${EXECUTEABLE} ${CMAKE_THREAD_LIBS_INIT})
