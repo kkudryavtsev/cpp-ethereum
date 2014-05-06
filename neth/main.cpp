@@ -20,10 +20,6 @@
  * Ethereum client.
  */
 
-#include <ncurses.h>
-#undef OK
-#include <form.h>
-#undef OK
 #include <thread>
 #include <chrono>
 #include <fstream>
@@ -38,6 +34,13 @@
 #include <libethereum/State.h>
 #include <libethereum/Instruction.h>
 #include "BuildInfo.h"
+
+#undef KEY_EVENT // from windows.h
+#include <ncurses.h>
+#undef OK
+#include <form.h>
+#undef OK
+
 using namespace std;
 using namespace eth;
 using namespace boost::algorithm;
@@ -136,8 +139,8 @@ string pretty(h160 _a, eth::State _st)
 {
 	string ns;
 	h256 n;
-	if (h160 nameReg = (u160)_st.contractStorage(c_config, 0))
-		n = _st.contractStorage(nameReg, (u160)(_a));
+	if (h160 nameReg = (u160)_st.storage(c_config, 0))
+		n = _st.storage(nameReg, (u160)(_a));
 	if (n)
 	{
 		std::string s((char const*)n.data(), 32);
@@ -240,14 +243,16 @@ int nc_window_streambuf::overflow(int c)
 		int my = 0;
 		getyx(m_pnl, y, x);
 		getmaxyx(m_pnl, my, mx);
-		(void)my;
 		if (y < 1)
 			y = 1;
 		if (x < 2)
 			x = 2;
 		if (x > mx - 4)
 		{
-			y++;
+			if (y + 1 >= my)
+				scroll(m_pnl);
+			else
+				y++;
 			x = 2;
 		}
 		if (m_flags)
@@ -391,7 +396,6 @@ int main(int argc, char** argv)
 	std::ostringstream ccout;
 
 	// Initialize ncurses
-	const char* chr;
 	char* str = new char[255];
 	int width;
 	int height;
@@ -452,7 +456,11 @@ int main(int argc, char** argv)
 	if (!remoteHost.empty())
 		c.startNetwork(listenPort, remoteHost, remotePort, mode, peers, publicIP, upnp);
 	if (mining)
+	{
+		c.lock();
 		c.startMining();
+		c.unlock();
+	}
 
 	while (true)
 	{
@@ -474,8 +482,13 @@ int main(int argc, char** argv)
 
 		// Address
 		ccout << "Address:" << endl;
-		chr = toHex(us.address().asArray()).c_str();
-		ccout << chr << endl << endl;
+		ccout << toHex(us.address().asArray()) << endl << endl;
+
+		c.lock();
+		auto const& st = c.state();
+		auto const& bc = c.blockChain();
+		ccout << "Genesis hash: " << bc.genesisHash() << endl;
+		c.unlock();
 
 		mvwprintw(mainwin, 1, 1, " > ");
 		clrtoeol();
@@ -490,39 +503,52 @@ int main(int argc, char** argv)
 		{
 			eth::uint port;
 			iss >> port;
+			c.lock();
 			c.startNetwork((short)port);
+			c.unlock();
 		}
 		else if (cmd == "connect")
 		{
 			string addr;
 			eth::uint port;
 			iss >> addr >> port;
+			c.lock();
 			c.connect(addr, (short)port);
+			c.unlock();
 		}
 		else if (cmd == "netstop")
+		{
+			c.lock();
 			c.stopNetwork();
+			c.unlock();
+		}
 		else if (cmd == "minestart")
+		{
+			c.lock();
 			c.startMining();
+			c.unlock();
+		}
 		else if (cmd == "minestop")
+		{
+			c.lock();
 			c.stopMining();
+			c.unlock();
+		}
 		else if (cmd == "address")
 		{
 			ccout << "Current address:" << endl;
-			const char* addchr = toHex(us.address().asArray()).c_str();
-			ccout << addchr << endl;
+			ccout << toHex(us.address().asArray()) << endl;
 		}
 		else if (cmd == "secret")
 		{
 			ccout << "Current secret:" << endl;
-			const char* addchr = toHex(us.secret().asArray()).c_str();
-			ccout << addchr << endl;
+			ccout << toHex(us.secret().asArray()) << endl;
 		}
 		else if (cmd == "block")
 		{
 			eth::uint n = c.blockChain().details().number;
 			ccout << "Current block # ";
-			const char* addchr = toString(n).c_str();
-			ccout << addchr << endl;
+			ccout << toString(n) << endl;
 		}
 		else if (cmd == "peers")
 		{
@@ -535,8 +561,7 @@ int main(int argc, char** argv)
 		{
 			u256 balance = c.state().balance(us.address());
 			ccout << "Current balance:" << endl;
-			const char* addchr = toString(balance).c_str();
-			ccout << addchr << endl;
+			ccout << toString(balance) << endl;
 		}
 		else if (cmd == "transact")
 		{
@@ -707,17 +732,14 @@ int main(int argc, char** argv)
 						cwarn << "No code submitted";
 					else
 					{
-						bytes code = fromHex(scode);
 						cnote << "Assembled:";
 						stringstream ssc;
-						ssc << disassemble(code);
-						cnote << ssc.str();
 						bytes init = fromHex(sinit);
 						ssc.str(string());
 						ssc << disassemble(init);
 						cnote << "Init:";
 						cnote << ssc.str();
-						c.transact(us.secret(), endowment, code, init, gas, gasPrice);
+						c.transact(us.secret(), endowment, init, gas, gasPrice);
 					}
 				}
 			}
@@ -734,11 +756,11 @@ int main(int argc, char** argv)
 				c.lock();
 				auto h = h160(fromHex(rechex));
 				stringstream s;
-				auto mem = c.state().contractStorage(h);
+				auto mem = c.state().storage(h);
 
 				for (auto const& i: mem)
 					s << "@" << showbase << hex << i.first << "    " << showbase << hex << i.second << endl;
-				s << endl << disassemble(c.state().contractCode(h));
+				s << endl << disassemble(c.state().code(h));
 
 				string outFile = getDataDir() + "/" + rechex + ".evm";
 				ofstream ofs;
@@ -762,8 +784,6 @@ int main(int argc, char** argv)
 		c.lock();
 
 		// Blocks
-		auto const& st = c.state();
-		auto const& bc = c.blockChain();
 		y = 1;
 		for (auto h = bc.currentHash(); h != bc.genesisHash(); h = bc.details(h).parent)
 		{
@@ -773,10 +793,10 @@ int main(int argc, char** argv)
 
 			for (auto const& i: RLP(bc.block(h))[1])
 			{
-				Transaction t(i.data());
+				Transaction t(i[0].data());
 				string ss;
 				ss = t.receiveAddress ?
-					"  " + toString(toHex(t.safeSender().asArray())) + " " + (st.isContractAddress(t.receiveAddress) ? '*' : '-') + "> " + toString(t.receiveAddress) + ": " + toString(formatBalance(t.value)) + " [" + toString((unsigned)t.nonce) + "]":
+					"  " + toString(toHex(t.safeSender().asArray())) + " " + (st.addressHasCode(t.receiveAddress) ? '*' : '-') + "> " + toString(t.receiveAddress) + ": " + toString(formatBalance(t.value)) + " [" + toString((unsigned)t.nonce) + "]":
 					"  " + toString(toHex(t.safeSender().asArray())) + " +> " + toString(right160(t.sha3())) + ": " + toString(formatBalance(t.value)) + " [" + toString((unsigned)t.nonce) + "]";
 				mvwaddnstr(blockswin, y++, x, ss.c_str(), qwidth - 2);
 				if (y > qheight - 2)
@@ -794,7 +814,7 @@ int main(int argc, char** argv)
 		{
 			string ss;
 			if (t.receiveAddress)
-				ss = toString(toHex(t.safeSender().asArray())) + " " + (st.isContractAddress(t.receiveAddress) ? '*' : '-') + "> " + toString(t.receiveAddress) + ": " + toString(formatBalance(t.value)) + " " + " [" + toString((unsigned)t.nonce) + "]";
+				ss = toString(toHex(t.safeSender().asArray())) + " " + (st.addressHasCode(t.receiveAddress) ? '*' : '-') + "> " + toString(t.receiveAddress) + ": " + toString(formatBalance(t.value)) + " " + " [" + toString((unsigned)t.nonce) + "]";
 			else
 				ss = toString(toHex(t.safeSender().asArray())) + " +> " + toString(right160(t.sha3())) + ": " + toString(formatBalance(t.value)) + "[" + toString((unsigned)t.nonce) + "]";
 			mvwaddnstr(pendingwin, y++, x, ss.c_str(), qwidth);
@@ -816,7 +836,7 @@ int main(int argc, char** argv)
 			mvwaddnstr(addswin, y++, x, ss.c_str(), width / 2 - 4);
 			scrollok(addswin, true);
 
-			if (st.isContractAddress(r))
+			if (st.addressHasCode(r))
 			{
 				ss = toString(r) + " : " + toString(formatBalance(i.second)) + " [" + toString((unsigned)st.transactionsFrom(i.first)) + "]";
 				mvwaddnstr(contractswin, cc++, x, ss.c_str(), qwidth);
@@ -853,15 +873,14 @@ int main(int argc, char** argv)
 		stringstream ssb;
 		u256 balance = c.state().balance(us.address());
 		Address gavCoin("91a10664d0cd489085a7a018beb5245d4f2272f1");
-		u256 totalGavCoinBalance = st.contractStorage(gavCoin, (u160)us.address());
+		u256 totalGavCoinBalance = st.storage(gavCoin, (u160)us.address());
 		ssb << "Balance: " << formatBalance(balance) <<  " | " << totalGavCoinBalance << " GAV";
 		mvwprintw(consolewin, 0, x, ssb.str().c_str());
 
 		// Block
 		mvwprintw(blockswin, 0, x, "Block # ");
 		eth::uint n = c.blockChain().details().number;
-		chr = toString(n).c_str();
-		mvwprintw(blockswin, 0, 10, chr);
+		mvwprintw(blockswin, 0, 10, toString(n).c_str());
 
 		// Pending
 		string pc;
@@ -875,8 +894,7 @@ int main(int argc, char** argv)
 
 		// Peers
 		mvwprintw(peerswin, 0, x, "Peers: ");
-		chr = toString(c.peers().size()).c_str();
-		mvwprintw(peerswin, 0, 9, chr);
+		mvwprintw(peerswin, 0, 9, toString(c.peers().size()).c_str());
 
 		// Mining flag
 		if (c.isMining())
@@ -949,7 +967,7 @@ vector<string> form_dialog(vector<string> _sv, vector<string> _lv, vector<string
 	int _lfields = _lv.size();
 	int _bfields = _bv.size();
 	int maxfields = _sfields + _lfields + _bfields;
-	FIELD *field[maxfields];
+	vector<FIELD*> field(maxfields);
 	int ch;
 	int starty = 6;
 	int height = _cols;
@@ -987,7 +1005,7 @@ vector<string> form_dialog(vector<string> _sv, vector<string> _lv, vector<string
 	field[maxfields] = NULL;
 
 	// Create the form and post it
-	FORM *form = new_form(field);
+	FORM *form = new_form(&field[0]);
 
 	// Calculate the area required for the form
 	scale_form(form, &_rows, &_cols);

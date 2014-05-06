@@ -23,3 +23,6 @@
 
 using namespace std;
 using namespace eth;
+
+#pragma GCC diagnostic ignored "-Wunused-variable"
+namespace { char dummy; };

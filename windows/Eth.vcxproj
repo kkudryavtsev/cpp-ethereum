@@ -21,7 +21,7 @@
   <PropertyGroup Label="Globals">
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>Ethereum</RootNamespace>
-    <ProjectName>Ethereum</ProjectName>
+    <ProjectName>eth</ProjectName>
     <ProjectGuid>{C60C065C-2135-4B2B-AFD4-35FD7AC56B40}</ProjectGuid>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
@@ -62,29 +62,22 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
     <Import Project="LibEthereum.props" />
     <Import Project="LibEthereum_Release.props" />
-    <Import Project="CopyBinary.props" />
   </ImportGroup>
   <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
     <Import Project="LibEthereum.props" />
     <Import Project="LibEthereum_Release.props" />
-    <Import Project="CopyBinary.props" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <LinkIncremental>true</LinkIncremental>
-    <TargetName>eth</TargetName>
   </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <TargetName>eth</TargetName>
-  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <LinkIncremental>false</LinkIncremental>
-    <TargetName>eth</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
-    <TargetName>eth</TargetName>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
@@ -190,4 +183,13 @@
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
+  <PropertyGroup>
+    <BuildDependsOn>$(BuildDependsOn);FinalCopy</BuildDependsOn>
+  </PropertyGroup>
+  <Target Name="FinalCopy" DependsOnTargets="AfterBuild" Condition="'$(Configuration)' == 'Release'">
+    <ItemGroup>
+      <CopyToBinDir Include="$(OutDir)\*.exe" />
+    </ItemGroup>
+    <Copy SourceFiles="@(CopyToBinDir)" DestinationFiles="@(CopyToBinDir->'..\..\_binaries\$(Platform)\%(RecursiveDir)%(Filename)%(Extension)')" />
+  </Target>
 </Project>

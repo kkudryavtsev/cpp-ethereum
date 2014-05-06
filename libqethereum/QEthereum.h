@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QtCore/QAbstractListModel>
+#include <QtQml/QtQml>
 #include <libethereum/CommonEth.h>
 #include <libethcore/CommonIO.h>
 
@@ -11,6 +12,7 @@ class State;
 
 class QQmlEngine;
 class QJSEngine;
+class QWebFrame;
 
 class QEthereum;
 class QmlAccount;
@@ -140,7 +142,7 @@ public:
 
 public slots:
 	void transact(eth::Secret _secret, eth::Address _dest, eth::u256 _amount, eth::u256 _gasPrice, eth::u256 _gas, QByteArray _data);
-	void transact(eth::Secret _secret, eth::u256 _amount, eth::u256 _gasPrice, eth::u256 _gas, QByteArray _code, QByteArray _init);
+	void transact(eth::Secret _secret, eth::u256 _amount, eth::u256 _gasPrice, eth::u256 _gas, QByteArray _init);
 	void setCoinbase(eth::Address);
 	void setMining(bool _l);
 
@@ -157,6 +159,7 @@ private:
 	Q_PROPERTY(bool mining READ isMining WRITE setMining)
 };
 
+#if 0
 template <class T> T to(QVariant const& _s) { if (_s.type() != QVariant::String) return T(); auto s = _s.toString().toLatin1(); assert(s.size() == sizeof(T)); return *(T*)s.data(); }
 template <class T> QVariant toQJS(T const& _s) { QLatin1String ret((char*)&_s, sizeof(T)); assert(QVariant(QString(ret)).toString().toLatin1().size() == sizeof(T)); assert(*(T*)(QVariant(QString(ret)).toString().toLatin1().data()) == _s); return QVariant(QString(ret)); }
 
@@ -280,6 +283,78 @@ public:
 		return toQJS<eth::u256>(ret);
 	}
 };
+#endif
+
+inline eth::bytes asBytes(QString const& _s)
+{
+	eth::bytes ret;
+	ret.reserve(_s.size());
+	for (QChar c: _s)
+		ret.push_back(c.cell());
+	return ret;
+}
+
+inline QString asQString(eth::bytes const& _s)
+{
+	QString ret;
+	ret.reserve(_s.size());
+	for (auto c: _s)
+		ret.push_back(QChar(c, 0));
+	return ret;
+}
+
+eth::bytes toBytes(QString const& _s);
+
+QString padded(QString const& _s, unsigned _l, unsigned _r);
+QString padded(QString const& _s, unsigned _l);
+QString unpadded(QString _s);
+
+template <unsigned N> eth::FixedHash<N> toFixed(QString const& _s)
+{
+	if (_s.startsWith("0x"))
+		// Hex
+		return eth::FixedHash<N>(_s.mid(2).toStdString());
+	else if (!_s.contains(QRegExp("[^0-9]")))
+		// Decimal
+		return (typename eth::FixedHash<N>::Arith)(_s.toStdString());
+	else
+		// Binary
+		return eth::FixedHash<N>(asBytes(padded(_s, N)));
+}
+
+template <unsigned N> boost::multiprecision::number<boost::multiprecision::cpp_int_backend<N * 8, N * 8, boost::multiprecision::unsigned_magnitude, boost::multiprecision::unchecked, void>> toInt(QString const& _s)
+{
+	if (_s.startsWith("0x"))
+		return eth::fromBigEndian<boost::multiprecision::number<boost::multiprecision::cpp_int_backend<N * 8, N * 8, boost::multiprecision::unsigned_magnitude, boost::multiprecision::unchecked, void>>>(eth::fromHex(_s.toStdString().substr(2)));
+	else if (!_s.contains(QRegExp("[^0-9]")))
+		// Hex or Decimal
+		return boost::multiprecision::number<boost::multiprecision::cpp_int_backend<N * 8, N * 8, boost::multiprecision::unsigned_magnitude, boost::multiprecision::unchecked, void>>(_s.toStdString());
+	else
+		// Binary
+		return eth::fromBigEndian<boost::multiprecision::number<boost::multiprecision::cpp_int_backend<N * 8, N * 8, boost::multiprecision::unsigned_magnitude, boost::multiprecision::unchecked, void>>>(asBytes(padded(_s, N)));
+}
+
+inline eth::Address toAddress(QString const& _s) { return toFixed<20>(_s); }
+inline eth::Secret toSecret(QString const& _s) { return toFixed<32>(_s); }
+inline eth::u256 toU256(QString const& _s) { return toInt<32>(_s); }
+
+template <unsigned S> QString toQJS(eth::FixedHash<S> const& _h) { return QString::fromStdString("0x" + toHex(_h.ref())); }
+template <unsigned N> QString toQJS(boost::multiprecision::number<boost::multiprecision::cpp_int_backend<N, N, boost::multiprecision::unsigned_magnitude, boost::multiprecision::unchecked, void>> const& _n) { return QString::fromStdString("0x" + eth::toHex(eth::toCompactBigEndian(_n))); }
+
+inline QString toBinary(QString const& _s)
+{
+	return asQString(toBytes(_s));
+}
+
+inline QString toDecimal(QString const& _s)
+{
+	return QString::fromStdString(eth::toString(toU256(_s)));
+}
+
+inline QString fromBinary(QString const& _s)
+{
+	return QString::fromStdString("0x" + eth::toHex(asBytes(_s)));
+}
 
 class QEthereum: public QObject
 {
@@ -291,40 +366,49 @@ public:
 
 	eth::Client* client() const;
 
-	Q_INVOKABLE QVariant/*eth::Address*/ coinbase() const;
-
-	Q_INVOKABLE bool isListening() const;
-	Q_INVOKABLE bool isMining() const;
-
-	Q_INVOKABLE QVariant/*eth::u256*/ balanceAt(QVariant/*eth::Address*/ _a) const;
-	Q_INVOKABLE QVariant/*eth::u256*/ storageAt(QVariant/*eth::Address*/ _a, QVariant/*eth::u256*/ _p) const;
-	Q_INVOKABLE double txCountAt(QVariant/*eth::Address*/ _a) const;
-	Q_INVOKABLE bool isContractAt(QVariant/*eth::Address*/ _a) const;
-
-	Q_INVOKABLE QVariant gasPrice() const { return toQJS(10 * eth::szabo); }
+	void setup(QWebFrame* _e);
+	void teardown(QWebFrame* _e);
 
 	Q_INVOKABLE QString ethTest() const { return "Hello world!"; }
-
-	Q_INVOKABLE QVariant/*eth::KeyPair*/ key() const;
-	Q_INVOKABLE QList<QVariant/*eth::KeyPair*/> keys() const;
-	Q_INVOKABLE QVariant/*eth::Address*/ account() const;
-	Q_INVOKABLE QList<QVariant/*eth::Address*/> accounts() const;
-
-	Q_INVOKABLE unsigned peerCount() const;
-
 	Q_INVOKABLE QEthereum* self() { return this; }
 
-	Q_INVOKABLE QVariant create(QVariant _secret, QVariant _amount, QByteArray _code, QByteArray _init, QVariant _gas, QVariant _gasPrice);
-	Q_INVOKABLE void transact(QVariant _secret, QVariant _amount, QVariant _dest, QByteArray _data, QVariant _gas, QVariant _gasPrice);
+	Q_INVOKABLE QString secretToAddress(QString _s) const;
+
+	Q_INVOKABLE QString pad(QString _s, unsigned _l) const { return padded(_s, _l); }
+	Q_INVOKABLE QString pad(QString _s, unsigned _l, unsigned _r) const { return padded(_s, _l, _r); }
+	Q_INVOKABLE QString unpad(QString _s) const { return unpadded(_s); }
+	Q_INVOKABLE QString toBinary(QString _s) const { return ::toBinary(_s); }
+	Q_INVOKABLE QString fromBinary(QString _s) const { return ::fromBinary(_s); }
+	Q_INVOKABLE QString toDecimal(QString _s) const { return ::toDecimal(_s); }
+
+	Q_INVOKABLE QString/*eth::u256*/ balanceAt(QString/*eth::Address*/ _a) const;
+	Q_INVOKABLE QString/*eth::u256*/ storageAt(QString/*eth::Address*/ _a, QString/*eth::u256*/ _p) const;
+	Q_INVOKABLE double txCountAt(QString/*eth::Address*/ _a) const;
+	Q_INVOKABLE bool isContractAt(QString/*eth::Address*/ _a) const;
+
+	Q_INVOKABLE QString doCreate(QString _secret, QString _amount, QString _init, QString _gas, QString _gasPrice);
+	Q_INVOKABLE void doTransact(QString _secret, QString _amount, QString _dest, QString _data, QString _gas, QString _gasPrice);
+
+	bool isListening() const;
+	bool isMining() const;
+
+	QString/*eth::Address*/ coinbase() const;
+	QString/*eth::u256*/ gasPrice() const { return toQJS(10 * eth::szabo); }
 
 	eth::u256 balanceAt(eth::Address _a) const;
 	double txCountAt(eth::Address _a) const;
 	bool isContractAt(eth::Address _a) const;
 
-public slots:
-	void setCoinbase(QVariant/*eth::Address*/);
-	void setMining(bool _l);
+	QString/*eth::KeyPair*/ key() const;
+	QStringList/*list of eth::KeyPair*/ keys() const;
+	QString/*eth::Address*/ account() const;
+	QStringList/*list of eth::Address*/ accounts() const;
 
+	unsigned peerCount() const;
+
+public slots:
+	void setCoinbase(QString/*eth::Address*/);
+	void setMining(bool _l);
 	void setListening(bool _l);
 
 signals:
@@ -333,9 +417,13 @@ signals:
 //	void miningChanged();
 
 private:
-//	Q_PROPERTY(QVariant coinbase READ coinbase WRITE setCoinbase NOTIFY changed)
-//	Q_PROPERTY(bool listening READ isListening WRITE setListening)
-//	Q_PROPERTY(bool mining READ isMining WRITE setMining)
+	Q_PROPERTY(QString coinbase READ coinbase WRITE setCoinbase NOTIFY changed)
+	Q_PROPERTY(bool listening READ isListening WRITE setListening)
+	Q_PROPERTY(bool mining READ isMining WRITE setMining)
+	Q_PROPERTY(QString gasPrice READ gasPrice NOTIFY changed)
+	Q_PROPERTY(QString key READ key NOTIFY changed)
+	Q_PROPERTY(QStringList keys READ keys NOTIFY changed)
+	Q_PROPERTY(unsigned peerCount READ peerCount)
 
 	eth::Client* m_client;
 	QList<eth::KeyPair> m_accounts;

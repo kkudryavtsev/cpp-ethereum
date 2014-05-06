@@ -18,6 +18,7 @@
 #include <libethereum/Instruction.h>
 #include <libethereum/PeerServer.h>
 #include <libethereum/VM.h>
+#include <libethereum/ExtVM.h>
 #include "BuildInfo.h"
 #include "MainWin.h"
 #include "ui_Main.h"
@@ -45,6 +46,7 @@ using eth::Executive;
 // functions
 using eth::toHex;
 using eth::assemble;
+using eth::pushLiteral;
 using eth::compileLisp;
 using eth::disassemble;
 using eth::formatBalance;
@@ -95,7 +97,7 @@ string htmlDump(bytes const& _b, unsigned _w = 8)
 	return ret.str();
 }
 
-Address c_config = Address("5620133321fcac7f15a5c570016f6cb6dc263f9d");
+Address c_config = Address("ccdeac59d35627b7de09332e819d5159e7bb7250");
 
 using namespace boost::process;
 
@@ -179,9 +181,7 @@ Main::Main(QWidget *parent) :
 	m_servers.append("192.168.0.10:30301");
 #else
 	int pocnumber = QString(ETH_QUOTED(ETH_VERSION)).section('.', 1, 1).toInt();
-	if (pocnumber == 3)
-		m_servers.push_back("54.201.28.117:30303");
-	else if (pocnumber == 4)
+	if (pocnumber == 4)
 		m_servers.push_back("54.72.31.55:30303");
 	else if (pocnumber == 5)
 		m_servers.push_back("54.201.28.117:30303");
@@ -224,10 +224,8 @@ Main::Main(QWidget *parent) :
 
 	QWebFrame* f = ui->webView->page()->currentFrame();
 	connect(f, &QWebFrame::javaScriptWindowObjectCleared, [=](){
-		f->addToJavaScriptWindowObject("eth", new QEthereum(this, m_client.get(), owned()), QWebFrame::ScriptOwnership);
-		f->addToJavaScriptWindowObject("u256", new U256Helper, QWebFrame::ScriptOwnership);
-		f->addToJavaScriptWindowObject("key", new KeyHelper, QWebFrame::ScriptOwnership);
-		f->addToJavaScriptWindowObject("bytes", new  BytesHelper, QWebFrame::ScriptOwnership);
+		auto qe = new QEthereum(this, m_client.get(), owned());
+		qe->setup(f);
 	});
 
 	readSettings();
@@ -249,15 +247,21 @@ Main::~Main()
 	writeSettings();
 }
 
+void Main::on_jsInput_returnPressed()
+{
+	ui->jsInput->setText(ui->webView->page()->currentFrame()->evaluateJavaScript(ui->jsInput->text()).toString());
+	ui->jsInput->setSelection(0, ui->jsInput->text().size());
+}
+
 QString Main::pretty(eth::Address _a) const
 {
 	h256 n;
 
-	if (h160 nameReg = (u160)state().contractStorage(c_config, 0))
-		n = state().contractStorage(nameReg, (u160)(_a));
+	if (h160 nameReg = (u160)state().storage(c_config, 0))
+		n = state().storage(nameReg, (u160)(_a));
 
 	if (!n)
-		n = state().contractStorage(m_nameReg, (u160)(_a));
+		n = state().storage(m_nameReg, (u160)(_a));
 
 	if (n)
 	{
@@ -290,11 +294,11 @@ Address Main::fromString(QString const& _a) const
 	memset(n.data() + sn.size(), 0, 32 - sn.size());
 	if (_a.size())
 	{
-		if (h160 nameReg = (u160)state().contractStorage(c_config, 0))
-			if (h256 a = state().contractStorage(nameReg, n))
+		if (h160 nameReg = (u160)state().storage(c_config, 0))
+			if (h256 a = state().storage(nameReg, n))
 				return right160(a);
 
-		if (h256 a = state().contractStorage(m_nameReg, n))
+		if (h256 a = state().storage(m_nameReg, n))
 			return right160(a);
 	}
 	if (_a.size() == 40)
@@ -346,7 +350,6 @@ void Main::readSettings()
 	restoreGeometry(s.value("geometry").toByteArray());
 	restoreState(s.value("windowState").toByteArray());
 
-
 	QByteArray b = s.value("address").toByteArray();
 	if (b.isEmpty())
 		m_myKeys.append(KeyPair::create());
@@ -367,10 +370,10 @@ void Main::readSettings()
 	ui->port->setValue(s.value("port", ui->port->value()).toInt());
 	ui->nameReg->setText(s.value("NameReg", "").toString());
 	ui->urlEdit->setText(s.value("url", "http://gavwood.com/gavcoin.html").toString());
-	on_urlEdit_editingFinished();
+	on_urlEdit_returnPressed();
 }
 
-void Main::on_urlEdit_editingFinished()
+void Main::on_urlEdit_returnPressed()
 {
 	ui->webView->setUrl(ui->urlEdit->text());
 }
@@ -427,7 +430,7 @@ void Main::refresh(bool _override)
 				{
 					(new QListWidgetItem(QString("%2: %1 [%3]").arg(formatBalance(i.second).c_str()).arg(r).arg((unsigned)state().transactionsFrom(i.first)), ui->accounts))
 						->setData(Qt::UserRole, QByteArray((char const*)i.first.data(), Address::size));
-					if (st.isContractAddress(i.first))
+					if (st.addressHasCode(i.first))
 						(new QListWidgetItem(QString("%2: %1 [%3]").arg(formatBalance(i.second).c_str()).arg(r).arg((unsigned)st.transactionsFrom(i.first)), ui->contracts))
 							->setData(Qt::UserRole, QByteArray((char const*)i.first.data(), Address::size));
 
@@ -454,7 +457,7 @@ void Main::refresh(bool _override)
 					.arg(render(t.safeSender()))
 					.arg(render(t.receiveAddress))
 					.arg((unsigned)t.nonce)
-					.arg(st.isContractAddress(t.receiveAddress) ? '*' : '-') :
+					.arg(st.addressHasCode(t.receiveAddress) ? '*' : '-') :
 				QString("%2 +> %3: %1 [%4]")
 					.arg(formatBalance(t.value).c_str())
 					.arg(render(t.safeSender()))
@@ -473,14 +476,14 @@ void Main::refresh(bool _override)
 			int n = 0;
 			for (auto const& i: RLP(bc.block(h))[1])
 			{
-				Transaction t(i.data());
+				Transaction t(i[0].data());
 				QString s = t.receiveAddress ?
 					QString("    %2 %5> %3: %1 [%4]")
 						.arg(formatBalance(t.value).c_str())
 						.arg(render(t.safeSender()))
 						.arg(render(t.receiveAddress))
 						.arg((unsigned)t.nonce)
-						.arg(st.isContractAddress(t.receiveAddress) ? '*' : '-') :
+						.arg(st.addressHasCode(t.receiveAddress) ? '*' : '-') :
 					QString("    %2 +> %3: %1 [%4]")
 						.arg(formatBalance(t.value).c_str())
 						.arg(render(t.safeSender()))
@@ -508,7 +511,7 @@ void Main::refresh(bool _override)
 				->setData(Qt::UserRole, QByteArray((char const*)i.address().data(), Address::size));
 			totalBalance += b;
 
-			totalGavCoinBalance += st.contractStorage(gavCoin, (u160)i.address());
+			totalGavCoinBalance += st.storage(gavCoin, (u160)i.address());
 		}
 
 		ui->balance->setText(QString::fromStdString(toString(totalGavCoinBalance) + " GAV | " + formatBalance(totalBalance)));
@@ -559,13 +562,13 @@ void Main::on_blocks_currentItemChanged()
 			s << "<br/>Coinbase: <b>" << pretty(info.coinbaseAddress).toStdString() << "</b> " << info.coinbaseAddress;
 			s << "<br/>State: <b>" << info.stateRoot << "</b>";
 			s << "<br/>Nonce: <b>" << info.nonce << "</b>";
-			s << "<br/>Transactions: <b>" << block[1].itemCount() << "</b> @<b>" << info.sha3Transactions << "</b>";
+			s << "<br/>Transactions: <b>" << block[1].itemCount() << "</b> @<b>" << info.transactionsRoot << "</b>";
 			s << "<br/>Uncles: <b>" << block[2].itemCount() << "</b> @<b>" << info.sha3Uncles << "</b>";
 		}
 		else
 		{
 			unsigned txi = item->data(Qt::UserRole + 1).toInt();
-			Transaction tx(block[1][txi].data());
+			Transaction tx(block[1][txi][0].data());
 			auto ss = tx.safeSender();
 			h256 th = sha3(rlpList(ss, tx.nonce));
 			s << "<h3>" << th << "</h3>";
@@ -581,10 +584,8 @@ void Main::on_blocks_currentItemChanged()
 			s << "<br/>Gas: <b>" << tx.gas << "</b>";
 			if (tx.isCreation())
 			{
-				if (tx.init.size())
-					s << "<h4>Init</h4>" << disassemble(tx.init);
 				if (tx.data.size())
-					s << "<h4>Body</h4>" << disassemble(tx.data);
+					s << "<h4>Code</h4>" << disassemble(tx.data);
 			}
 			else
 			{
@@ -610,10 +611,10 @@ void Main::on_contracts_currentItemChanged()
 		auto h = h160((byte const*)hba.data(), h160::ConstructFromPointer);
 
 		stringstream s;
-		auto storage = state().contractStorage(h);
+		auto storage = state().storage(h);
 		for (auto const& i: storage)
 			s << "@" << showbase << hex << i.first << "&nbsp;&nbsp;&nbsp;&nbsp;" << showbase << hex << i.second << "<br/>";
-		s << "<h4>Body Code</h4>" << disassemble(state().contractCode(h));
+		s << "<h4>Body Code</h4>" << disassemble(state().code(h));
 		ui->contractInfo->appendHtml(QString::fromStdString(s.str()));
 	}
 	m_client->unlock();
@@ -669,14 +670,17 @@ void Main::on_data_textChanged()
 	if (isCreation())
 	{
 		QString code = ui->data->toPlainText();
-		m_init.clear();
+		bytes initBytes;
+		bytes bodyBytes;
 		auto init = code.indexOf("init:");
 		auto body = code.indexOf("body:");
 		if (body == -1)
 			body = code.indexOf("code:");
 
 		if (body == -1 && init == -1)
-			m_data = compileLisp(code.toStdString(), true, m_init);
+		{
+			bodyBytes = compileLisp(code.toStdString(), true, initBytes);
+		}
 		else
 		{
 			init = (init == -1 ? 0 : (init + 5));
@@ -685,16 +689,37 @@ void Main::on_data_textChanged()
 			auto initCode = code.mid(init, initSize).trimmed();
 			auto bodyCode = code.mid(body).trimmed();
 			if (QRegExp("[^0-9a-fA-F]").indexIn(initCode) == -1)
-				m_init = fromHex(initCode.toStdString());
+				initBytes = fromHex(initCode.toStdString());
 			else
-				m_init = compileSerpent(initCode.toStdString());
+				initBytes = compileSerpent(initCode.toStdString());
 			if (QRegExp("[^0-9a-zA-Z]").indexIn(bodyCode) == -1)
-				m_data = fromHex(bodyCode.toStdString());
+				bodyBytes = fromHex(bodyCode.toStdString());
 			else
-				m_data = compileSerpent(bodyCode.toStdString());
+				bodyBytes = compileSerpent(bodyCode.toStdString());
 		}
-		ui->code->setHtml((m_init.size() ? "<h4>Init</h4>" + QString::fromStdString(disassemble(m_init)).toHtmlEscaped() : "") + "<h4>Body</h4>" + QString::fromStdString(disassemble(m_data)).toHtmlEscaped());
-		ui->gas->setMinimum((qint64)state().createGas(m_data.size() + m_init.size(), 0));
+
+		m_data.clear();
+		if (initBytes.size())
+			m_data = initBytes;
+		if (bodyBytes.size())
+		{
+			unsigned s = bodyBytes.size();
+			auto ss = pushLiteral(m_data, s);
+			unsigned p = m_data.size() + 4 + 2 + 1 + ss + 2 + 1;
+			pushLiteral(m_data, p);
+			pushLiteral(m_data, 0);
+			m_data.push_back((byte)Instruction::CODECOPY);
+			pushLiteral(m_data, s);
+			pushLiteral(m_data, 0);
+			m_data.push_back((byte)Instruction::RETURN);
+			while (m_data.size() < p)
+				m_data.push_back(0);
+			for (auto b: bodyBytes)
+				m_data.push_back(b);
+		}
+
+		ui->code->setHtml("<h4>Code</h4>" + QString::fromStdString(disassemble(m_data)).toHtmlEscaped());
+		ui->gas->setMinimum((qint64)state().createGas(m_data.size(), 0));
 		if (!ui->gas->isEnabled())
 			ui->gas->setValue(m_backupGas);
 		ui->gas->setEnabled(true);
@@ -732,7 +757,7 @@ void Main::on_data_textChanged()
 				s = s.mid(1);
 		}
 		ui->code->setHtml(QString::fromStdString(htmlDump(m_data)));
-		if (m_client->postState().isContractAddress(fromString(ui->destination->currentText())))
+		if (m_client->postState().addressHasCode(fromString(ui->destination->currentText())))
 		{
 			ui->gas->setMinimum((qint64)state().callGas(m_data.size(), 1));
 			if (!ui->gas->isEnabled())
@@ -861,7 +886,7 @@ void Main::on_send_clicked()
 			m_client->unlock();
 			Secret s = i.secret();
 			if (isCreation())
-				m_client->transact(s, value(), m_data, m_init, ui->gas->value(), gasPrice());
+				m_client->transact(s, value(), m_data, ui->gas->value(), gasPrice());
 			else
 				m_client->transact(s, value(), fromString(ui->destination->currentText()), m_data, ui->gas->value(), gasPrice());
 			refresh();
@@ -891,16 +916,7 @@ void Main::on_debug_clicked()
 			t.gasPrice = gasPrice();
 			t.gas = ui->gas->value();
 			t.data = m_data;
-			if (isCreation())
-			{
-				t.receiveAddress = Address();
-				t.init = m_init;
-			}
-			else
-			{
-				t.receiveAddress = fromString(ui->destination->currentText());
-				t.data = m_data;
-			}
+			t.receiveAddress = isCreation() ? Address() : fromString(ui->destination->currentText());
 			t.sign(s);
 			auto r = t.rlp();
 			m_currentExecution->setup(&r);
@@ -910,7 +926,7 @@ void Main::on_debug_clicked()
 			bool ok = true;
 			while (ok)
 			{
-				m_history.append(WorldState({m_currentExecution->vm().curPC(), m_currentExecution->vm().gas(), m_currentExecution->vm().stack(), m_currentExecution->vm().memory(), m_currentExecution->state().contractStorage(m_currentExecution->ext().myAddress)}));
+				m_history.append(WorldState({m_currentExecution->vm().curPC(), m_currentExecution->vm().gas(), m_currentExecution->vm().stack(), m_currentExecution->vm().memory(), m_currentExecution->state().storage(m_currentExecution->ext().myAddress)}));
 				ok = !m_currentExecution->go(1);
 			}
 			initDebugger();
@@ -942,14 +958,14 @@ void Main::debugFinished()
 	ui->debugMemory->setHtml("");
 	ui->debugStorage->setHtml("");
 	ui->debugStateInfo->setText("");
-	ui->send->setEnabled(true);
+//	ui->send->setEnabled(true);
 	ui->debugStep->setEnabled(false);
 	ui->debugPanel->setEnabled(false);
 }
 
 void Main::initDebugger()
 {
-	ui->send->setEnabled(false);
+//	ui->send->setEnabled(false);
 	ui->debugStep->setEnabled(true);
 	ui->debugPanel->setEnabled(true);
 	ui->debugCode->setEnabled(false);
@@ -1012,15 +1028,5 @@ void Main::updateDebugger()
 // include moc file, ofuscated to hide from automoc
 #include\
 "moc_MainWin.cpp"
-
-// specify library dependencies, it's easier to do here than in the project since we can control the "d" debug suffix
-#ifdef _DEBUG
-#define QTLIB(x) x"d.lib"
-#else 
-#define QTLIB(x) x".lib"
-#endif
-
-#pragma comment(lib, QTLIB("Qt5Webkit"))
-#pragma comment(lib, QTLIB("Qt5WebkitWidgets"))
 
 #endif

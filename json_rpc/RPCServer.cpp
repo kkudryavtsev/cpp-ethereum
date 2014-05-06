@@ -48,8 +48,8 @@ RPCServer::RPCServer(int port):
 	
 	g_logVerbosity = 1;
 	m_client.startNetwork((short)30303);
-	//m_client.connect("54.72.31.55", (short)30303);
-	m_client.connect("54.201.28.117", (short)30303);
+	m_client.connect("54.72.31.55", (short)30303);
+	//m_client.connect("54.201.28.117", (short)30303);
 }
 
 void RPCServer::getLastBlock(const Json::Value& req, Json::Value& res)

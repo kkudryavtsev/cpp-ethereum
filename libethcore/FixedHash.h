@@ -36,10 +36,10 @@ namespace eth
 template <unsigned N>
 class FixedHash
 {
+public:
 	/// The corresponding arithmetic type.
 	using Arith = boost::multiprecision::number<boost::multiprecision::cpp_int_backend<N * 8, N * 8, boost::multiprecision::unsigned_magnitude, boost::multiprecision::unchecked, void>>;
 
-public:
 	/// The size of the container.
 	enum { size = N };
 
@@ -211,6 +211,8 @@ inline h256 sha3(bytes const& _input) { return sha3(bytesConstRef((bytes*)&_inpu
 
 /// Calculate SHA3-256 hash of the given input (presented as a binary-filled string), returning as a 256-bit hash.
 inline h256 sha3(std::string const& _input) { return sha3(bytesConstRef(_input)); }
+
+extern h256 EmptySHA3;
 
 }
 

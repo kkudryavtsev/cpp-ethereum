@@ -69,10 +69,11 @@ private slots:
 	void on_nameReg_textChanged();
 	void on_preview_triggered() { refresh(true); }
 	void on_quit_triggered() { close(); }
-	void on_urlEdit_editingFinished();
+	void on_urlEdit_returnPressed();
 	void on_debugStep_triggered();
 	void on_debug_clicked();
 	void on_debugTimeline_valueChanged();
+	void on_jsInput_returnPressed();
 
 	void refresh(bool _override = false);
 	void refreshNetwork();
@@ -113,7 +114,6 @@ private:
 	QList<eth::KeyPair> m_myKeys;
 	bool m_keysChanged = false;
 	eth::bytes m_data;
-	eth::bytes m_init;
 	eth::Address m_nameReg;
 
 	unsigned m_backupGas;

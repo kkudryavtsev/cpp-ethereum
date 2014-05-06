@@ -143,9 +143,9 @@ else ()
 		/usr/include
 		/usr/local/include
 		)
-	if ( LEVELDB_ID ) 
+	if ( LEVELDB_ID )
 		message(STATUS "Found LevelDB Headers")
-	else () 
+	else ()
 		message(FATAL_ERROR "Failed to find the LevelDB headers")
 	endif ()
 
@@ -164,8 +164,8 @@ else ()
 	endif ()
 
 	find_path( MINIUPNPC_ID miniupnpc/miniwget.h
-		/usr/include/miniupnpc
-		/usr/local/include/miniupnpc
+		/usr/include
+		/usr/local/include
 		)
 	if ( MINIUPNPC_ID ) 
 		message(STATUS "Found miniupnpc headers")
@@ -186,15 +186,61 @@ else ()
 		message(FATAL_ERROR "Failed to find the miniupnpc library!")
 	endif ()
 
-endif()
 
-if(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
-	link_directories(/usr/local/lib)
-endif(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
+	find_path( JSONRPC_ID jsonrpc/rpc.h
+		/usr/include
+		/usr/local/include
+		)
+	if ( JSONRPC_ID )
+		message(STATUS "Found jsonrpc headers")
+		find_library( JSONRPC_LS NAMES jsonrpc
+			PATHS
+			/usr/lib
+			/usr/local/lib
+			/opt/local/lib
+			/usr/lib/*/
+			)
+		if ( JSONRPC_LS )
+			message(STATUS "Found jsonrpc library: ${JSONRPC_LS}")
+		else ()
+			message(STATUS "Failed to find the jsonrpc library!")
+		endif ()
+	else ()
+		message(STATUS "Failed to find the jsonrpc headers!")
+	endif ()
+
+	find_path( READLINE_ID readline/readline.h
+		/usr/include
+		/usr/local/include
+		)
+	if ( READLINE_ID )
+		message(STATUS "Found readline headers")
+		find_library( READLINE_LS NAMES readline
+			PATHS
+			/usr/lib
+			/usr/local/lib
+			/opt/local/lib
+			/usr/lib/*/
+			)
+		if ( READLINE_LS )
+			message(STATUS "Found readline library: ${READLINE_LS}")
+		else ()
+			message(STATUS "Failed to find the readline library!")
+		endif ()
+	else ()
+		message(STATUS "Failed to find the readline headers!")
+	endif ()
+
+endif()
 
 # Generate header file containing useful build information
 add_custom_target(BuildInfo.h ALL COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/BuildInfo.sh ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_BUILD_TYPE} ${ETH_BUILD_PLATFORM})
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
+
+if(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
+	link_directories(/usr/local/lib)
+	include_directories(/usr/local/include)
+endif(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
 
 add_subdirectory(secp256k1)
 add_subdirectory(libethcore)
@@ -203,8 +249,7 @@ add_subdirectory(test)
 add_subdirectory(eth)
 add_subdirectory(json_rpc)
 
-if ("${TARGET_PLATFORM}" STREQUAL "w64")
-else ()
+if (NOT ("${TARGET_PLATFORM}" STREQUAL "w64"))
 	add_subdirectory(neth)
 endif ()
 
