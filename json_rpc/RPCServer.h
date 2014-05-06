@@ -23,7 +23,8 @@
 #pragma once
 
 #include <jsonrpc/rpc.h>
-#include "Client.h"
+#include <libethereum/Client.h>
+//#include "Client.h"
 
 namespace eth
 {
@@ -31,11 +32,11 @@ namespace eth
 class RPCServer : public jsonrpc::AbstractServer<RPCServer>
 {
 public:
-
-	RPCServer();
+	RPCServer(int);
 	void getLastBlock(const Json::Value&, Json::Value&);
 	void getBlock(const Json::Value&, Json::Value&);
-	void getAddress(const Json::Value&, Json::Value&);
+	void getAddressState(const Json::Value&, Json::Value&);
+  void getAddresses(const Json::Value&, Json::Value&);
 	void makeTransaction(const Json::Value&, Json::Value&);
 
 private:

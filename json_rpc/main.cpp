@@ -32,10 +32,11 @@ using namespace eth;
 
 int main(int argc, char** argv)
 {
-	RPCServer s;
+	int port = 4000;
+	
+	RPCServer s(port);
 	s.StartListening();
-	//TODO: --port/-p option
-	cout << "json rpc client is listening on port 8080" << endl;
+	cout << "json rpc client is listening on port " << to_string(port) << endl;
 	getchar();
 	s.StopListening();
 	return 0;

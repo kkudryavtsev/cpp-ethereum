@@ -20,13 +20,12 @@
  * Ethereum client.
  */
 
-#include "Defaults.h"
-#include "PeerNetwork.h"
-#include "BlockChain.h"
-#include "State.h"
-#include "FileSystem.h"
-#include "Instruction.h"
-#include "Common.h"
+#include <libethereum/Defaults.h>
+#include <libethereum/PeerNetwork.h>
+#include <libethereum/BlockChain.h>
+#include <libethereum/State.h>
+#include <libethereum/Instruction.h>
+#include <libethcore/FileSystem.h>
 #include "RPCServer.h"
 
 using namespace jsonrpc;
@@ -38,22 +37,25 @@ using namespace eth;
 
 
 
-RPCServer::RPCServer():
-	AbstractServer<RPCServer>(new HttpServer(4000)),
+RPCServer::RPCServer(int port):
+	AbstractServer<RPCServer>(new HttpServer(port)),
 	m_client("Ethereum(++)/json_rpc", KeyPair::create().address())
 {
 	this->bindAndAddMethod(new Procedure("getLastBlock", PARAMS_BY_NAME, JSON_STRING, NULL),
-						   &RPCServer::getLastBlock);
+												 &RPCServer::getLastBlock);
+	this->bindAndAddMethod(new Procedure("getAddresses", PARAMS_BY_NAME, JSON_STRING, NULL),
+												 &RPCServer::getAddresses);
+	
 	g_logVerbosity = 1;
 	m_client.startNetwork((short)30303);
-	m_client.connect("54.72.31.55", (short)30303);
+	//m_client.connect("54.72.31.55", (short)30303);
+	m_client.connect("54.201.28.117", (short)30303);
 }
 
 void RPCServer::getLastBlock(const Json::Value& req, Json::Value& res)
 {
 	m_client.lock();
 	auto const& bc = m_client.blockChain();
-	auto h = bc.currentHash();
 	auto b = bc.block();
 	auto bi = BlockInfo(b);
 	res["number"] = to_string(bc.details(bc.currentHash()).number);
@@ -67,6 +69,31 @@ void RPCServer::getLastBlock(const Json::Value& req, Json::Value& res)
 	res["timestamp"] = boost::lexical_cast<string>(bi.timestamp);
 	res["nonce"] = boost::lexical_cast<string>(bi.nonce);
 	res["transactions"] = getTransactions(b);
+	m_client.unlock();
+}
+
+void RPCServer::getAddressState(const Json::Value& req, Json::Value& res)
+{
+	m_client.lock();
+	auto const& state = m_client.state();
+	m_client.unlock();
+}
+
+void RPCServer::getAddresses(const Json::Value& req, Json::Value& res)
+{
+	m_client.lock();
+	auto const& state = m_client.state();
+	auto addresses = state.addresses();
+	int i = 0;
+	for(auto addr : addresses)
+	{
+		Json::Value addr_j;
+		addr_j["address"] = boost::lexical_cast<string>(addr.first);
+		addr_j["balance"] = boost::lexical_cast<string>(addr.second);
+		addr_j["transactionsFrom"] = boost::lexical_cast<string>(state.transactionsFrom(addr.first));
+		addr_j["contractCode"] = disassemble(state.contractCode(addr.first));
+		res[i++].append(addr_j);
+	}
 	m_client.unlock();
 }
 
@@ -90,3 +117,4 @@ Json::Value RPCServer::getTransactions(bytesConstRef block)
 	}
 	return txs_j;
 }
+
